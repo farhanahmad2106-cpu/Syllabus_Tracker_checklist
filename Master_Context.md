@@ -1,9 +1,9 @@
 ## Syllabus Tracker Project - Master Context
 
 # Never Change this :-
+
 **1. Github Repository:-**
 *   **Link:** https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist
-
 
 # **Important:-**  
 
@@ -45,11 +45,13 @@
 ### Phase 4: Progress Engine & REST API [COMPLETED]
 - [x] Pure progress calculation engine in `backend/app/progress.py` (`completed_leaves / total_leaves * 100%`).
 - [x] Dynamic tri-state parent derivation (checked, unchecked, indeterminate).
-- [x] FastAPI application in `backend/app/main.py` implementing `/api/health`, `/api/syllabi`, `/api/upload`, `/api/syllabus/{id}`, `/api/syllabus/{id}/toggle-leaf`, `/api/syllabus/{id}/bulk-toggle`, and `/api/syllabus/{id}`.
+- [x] FastAPI application in `backend/app/main.py` implementing `/api/health`, `/api/syllabi`, `/api/upload`, `/api/syllabus/{id}`, `/api/syllabus/{id}/toggle-leaf`, `/api/syllabus/{id}/bulk-toggle` (supporting both `node_id` and explicit `leaf_ids`), and `/api/syllabus/{id}`.
 - [x] CORS middleware and domain exception handlers.
+- [x] Verified clean Python byte compilation via `python -m compileall backend/app`.
 
 ### Phase 5: React / TypeScript Frontend [COMPLETED]
-- [x] Canonical TypeScript interfaces in `frontend/src/types/syllabus.ts`.
+- [x] Canonical TypeScript interfaces in `frontend/src/types/syllabus.ts` (with `Year` alias).
+- [x] Pure progress helper library in `frontend/src/lib/progress.ts`.
 - [x] Typed HTTP client in `frontend/src/lib/api.ts`.
 - [x] Custom hook `frontend/src/hooks/useSyllabus.ts` managing syllabus state, mutations, and Ollama diagnostics.
 - [x] Components:
@@ -59,7 +61,7 @@
   - `SourceEvidence.tsx`: Grounding modal displaying verbatim document evidence and source page.
   - `ErrorMessage.tsx`: Dismissible error notifications.
   - `App.tsx`: Header, Ollama badge, sidebar, title rename, and delete dialog.
-- [x] Clean production build verified (`npm run build`).
+- [x] Clean TypeScript typecheck (`npm run typecheck`) and production build verified (`npm run build`).
 
 ### Current Repository Status
-- Codebase complete, tested, and ready for Git commit and push to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.
+- Codebase complete, tested, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.

@@ -32,6 +32,8 @@ export interface AcademicYear {
   order_index: number;
 }
 
+export type Year = AcademicYear;
+
 export interface HierarchicalSyllabus {
   id: string;
   title: string;
@@ -85,7 +87,8 @@ export interface LeafTogglePayload {
 }
 
 export interface BulkTogglePayload {
-  node_id: string;
+  node_id?: string;
+  leaf_ids?: string[];
   is_completed: boolean;
 }
 

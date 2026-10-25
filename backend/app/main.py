@@ -274,15 +274,23 @@ def toggle_branch(
     syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
     warnings = json.loads(rec.warnings_json) if rec.warnings_json else []
 
-    if not node_exists_in_syllabus(syllabus, payload.node_id):
-        raise InvalidNodeError(payload.node_id)
-
-    descendant_leaves = get_node_descendant_leaf_ids(syllabus, payload.node_id)
-    target_set, is_completed = determine_bulk_toggle_action(
-        descendant_leaf_ids=descendant_leaves,
-        current_completed_ids=get_completed_leaf_ids(session, syllabus_id),
-        explicit_target_state=payload.is_completed,
-    )
+    if payload.leaf_ids is not None:
+        target_set = set(payload.leaf_ids)
+        is_completed = payload.is_completed
+    elif payload.node_id is not None:
+        if not node_exists_in_syllabus(syllabus, payload.node_id):
+            raise InvalidNodeError(payload.node_id)
+        descendant_leaves = get_node_descendant_leaf_ids(syllabus, payload.node_id)
+        target_set, is_completed = determine_bulk_toggle_action(
+            descendant_leaf_ids=descendant_leaves,
+            current_completed_ids=get_completed_leaf_ids(session, syllabus_id),
+            explicit_target_state=payload.is_completed,
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either 'node_id' or 'leaf_ids' must be provided in bulk-toggle request.",
+        )
 
     try:
         completed_ids = update_bulk_completion(

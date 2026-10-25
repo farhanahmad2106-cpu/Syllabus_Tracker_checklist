@@ -162,20 +162,26 @@ class LeafToggleRequest(BaseModel):
         return s
 
 
-class BulkToggleRequest(BaseModel):
-    """Payload to set completion state for an entire branch or node."""
-    model_config = ConfigDict(strict=True)
+Year = AcademicYear
 
-    node_id: str = Field(..., min_length=1)
+
+class BulkToggleRequest(BaseModel):
+    """Payload to set completion state for an entire branch or list of leaves."""
+    model_config = ConfigDict(strict=False)
+
+    node_id: Optional[str] = None
+    leaf_ids: Optional[List[str]] = None
     is_completed: bool
 
     @field_validator("node_id")
     @classmethod
-    def validate_node_id(cls, v: str) -> str:
-        s = v.strip()
-        if not s:
-            raise ValueError("node_id must not be empty")
-        return s
+    def validate_node_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            s = v.strip()
+            if not s:
+                raise ValueError("node_id cannot be whitespace only")
+            return s
+        return None
 
 
 class SyllabusRenameRequest(BaseModel):
