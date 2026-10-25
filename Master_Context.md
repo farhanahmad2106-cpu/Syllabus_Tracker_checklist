@@ -113,9 +113,12 @@
   - Updated `SourceEvidence.tsx` badge rendering: `verified` (emerald), `needs_review` (amber), and `unverified` (rose).
 - [x] Academic-Year Inference Formula:
   - Grounded `derive_academic_year_number` in `backend/app/validation.py` to the strict `academic_year = (semester_number + 1) // 2` integer arithmetic formula.
+- [x] IDE Interpreter & Language Server Import Diagnostics Fix:
+  - Created `.vscode/settings.json` configuring `python.defaultInterpreterPath` to point to `backend/venv/Scripts/python.exe` and adding virtual environment `site-packages` to `python.analysis.extraPaths` to eliminate IDE unresolved import warnings when the editor defaults to system Python.
+  - Added defensive import guards and `# type: ignore[import-not-found]` in `backend/app/parser.py` and `backend/tests/test_parser.py` for `pypdf`, `docx`, and `docling`.
 - [x] Test Coverage & Build Verification:
   - Added unit test in `frontend/src/__tests__/FileUpload.test.tsx` verifying client-side rejection of files >50 MiB.
-  - Backend tests: 47 passed out of 47 in 1.53s (`pytest backend/tests`).
+  - Backend tests: 47 passed out of 47 in 2.61s (`pytest backend/tests`).
   - Frontend tests: 10 passed out of 10 in 4.17s (`vitest run`).
   - TypeScript typecheck: `tsc --noEmit` passed with 0 errors.
   - Production build: `npm run build` succeeded in 1.44s.

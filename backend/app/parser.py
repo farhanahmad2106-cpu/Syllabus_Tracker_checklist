@@ -15,8 +15,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from pypdf import PdfReader
-from docx import Document as DocxDocument
+try:
+    from pypdf import PdfReader  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    PdfReader = None  # type: ignore
+
+try:
+    from docx import Document as DocxDocument  # type: ignore[import-not-found,import-untyped]
+except ImportError:  # pragma: no cover
+    DocxDocument = None  # type: ignore
 
 from backend.app.config import settings
 from backend.app.exceptions import DocumentParserError, FileValidationError
@@ -98,6 +105,9 @@ def parse_pdf_pypdf(file_path: str, filename: str) -> Optional[ParsedDocument]:
     Returns ParsedDocument if extractable text is present, or None if the document
     is scanned or contains no machine-readable text.
     """
+    if PdfReader is None:
+        raise DocumentParserError("The 'pypdf' package is not installed. Please install requirements.")
+
     try:
         reader = PdfReader(file_path)
     except Exception as e:
@@ -162,6 +172,9 @@ def parse_pdf_pypdf(file_path: str, filename: str) -> Optional[ParsedDocument]:
 
 def parse_docx_python_docx(file_path: str, filename: str) -> ParsedDocument:
     """Fast, offline DOCX parsing using python-docx extracting paragraphs and tables."""
+    if DocxDocument is None:
+        raise DocumentParserError("The 'python-docx' package is not installed. Please install requirements.")
+
     try:
         doc = DocxDocument(file_path)
     except Exception as e:
@@ -209,7 +222,7 @@ def parse_with_docling_if_available(file_path: str, filename: str) -> Optional[P
 
     logger.info("document.docling_initializing filename=%s", filename)
     try:
-        from docling.document_converter import DocumentConverter
+        from docling.document_converter import DocumentConverter  # type: ignore[import-not-found]
 
         converter = DocumentConverter()
         result = converter.convert(file_path)

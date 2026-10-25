@@ -3,8 +3,15 @@
 import io
 import pytest
 from unittest.mock import MagicMock
-from docx import Document as DocxDocument
-from pypdf import PdfWriter
+try:
+    from docx import Document as DocxDocument  # type: ignore[import-not-found,import-untyped]
+except ImportError:  # pragma: no cover
+    DocxDocument = None  # type: ignore
+
+try:
+    from pypdf import PdfWriter  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    PdfWriter = None  # type: ignore
 
 from backend.app.config import settings
 from backend.app.exceptions import DocumentParserError, FileValidationError
