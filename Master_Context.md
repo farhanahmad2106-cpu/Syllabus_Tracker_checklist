@@ -161,5 +161,29 @@
   - Production build: `npm run build` succeeded in 1.80s.
   - End-to-end integration test: `test_large_multipage_pdf_chunked_ingestion` passed with synthetic multi-page document exceeding 15,000 characters.
 
+### Phase 9: Production-Grade Windows 11 Global CLI Launcher (`syllabus`) [COMPLETED]
+- [x] Windows-Native Global CLI Supervisor Engine (`scripts/launcher.py`):
+  - Unified commands: `syllabus`, `syllabus start`, `syllabus stop`, `syllabus status`, `syllabus logs`, `syllabus restart`, `syllabus help`.
+  - Windows Job Object process tree supervision (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` via `ctypes.windll.kernel32`), guaranteeing automatic kernel-level termination of all child processes (`uvicorn`, `node`, `vite`) if supervisor exits, eliminating orphaned processes.
+  - Non-destructive port conflict management: strictly avoids indiscriminate `taskkill` commands; probes HTTP health endpoints before binding; reuses verified healthy instances without crashing.
+  - Safe Ollama lifecycle management: probes `GET http://127.0.0.1:11434/api/tags`; preserves pre-existing daemons; runs in optional/degraded mode if Ollama is absent.
+  - Cross-terminal control IPC: loopback HTTP control server on `127.0.0.1:<ephemeral_port>` with cryptographically random 256-bit token authentication for graceful `syllabus stop` and live status inspection from external terminals.
+  - Single-instance lock (`supervisor.lock`) with automated stale PID detection and recovery.
+  - Persistent log rotation under `%LOCALAPPDATA%\SyllabusTracker\logs\` (`launcher.log`, `backend.log`, `frontend.log`, `ollama.log`).
+- [x] Idempotent Windows 11 Installer (`scripts/setup-global-cli.ps1`):
+  - Validates repository root, backend virtual environment, and frontend package manifest.
+  - Generates `%USERPROFILE%\bin\syllabus.cmd` and `syllabus.ps1` with signature verification.
+  - Adds `%USERPROFILE%\bin` to User PATH environment variable without requiring Administrator privileges.
+  - Configures `%LOCALAPPDATA%\SyllabusTracker\config.json`.
+- [x] Clean Uninstaller (`scripts/uninstall-global-cli.ps1`):
+  - Safely deletes only application-owned CLI wrappers and cleans User PATH without altering unrelated user tools or project data.
+- [x] Comprehensive Documentation (`scripts/README-launcher.md`):
+  - Documented prerequisites, setup commands, CLI options, config schema, process ownership, port safety, and recovery procedures.
+- [x] Automated Testing & Quality Verification:
+  - 17 unit tests in `backend/tests/test_launcher.py` covering CLI parsing, health probes, port inspection, single-instance locks, and IPC control server authentication (17 passed).
+  - Full backend test suite: 77 passed out of 77 in `backend/tests`.
+  - Frontend test suite: 12 passed out of 12 in `vitest run`.
+  - TypeScript typecheck: `tsc --noEmit` passed with 0 errors.
+
 ### Current Repository Status
 - Codebase complete, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.

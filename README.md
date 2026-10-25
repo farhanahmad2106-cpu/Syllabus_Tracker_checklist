@@ -89,7 +89,36 @@ A privacy-focused, production-minded, local-first application that ingests acade
 
 ---
 
-## 🚀 Windows PowerShell Launch & Operations
+## ⚡ Global CLI Launcher (`syllabus`) [Recommended]
+
+Syllabus Tracker includes a **production-grade Windows 11 Global CLI** with automatic process supervision, Windows Job Object tree cleanup, and non-destructive port conflict management.
+
+### Installation (One-Time Setup)
+
+Run from PowerShell inside the repository:
+
+```powershell
+.\scripts\setup-global-cli.ps1
+```
+
+This installs `syllabus` into `%USERPROFILE%\bin` and safely registers it in your **User PATH** without Administrator privileges.
+
+### Usage From Any Directory (CMD or PowerShell)
+
+```powershell
+syllabus                     # Starts backend, frontend & Ollama, opens browser
+syllabus status              # Inspects health, process PIDs, and ports
+syllabus logs backend -f     # Follow backend Uvicorn logs live
+syllabus stop                # Cleanly terminates managed services from any terminal
+syllabus restart             # Restarts managed services
+syllabus help                # Displays full options & configuration paths
+```
+
+For full architecture details, configuration options, and uninstallation, see [scripts/README-launcher.md](scripts/README-launcher.md).
+
+---
+
+## 🚀 Manual Windows PowerShell Launch (Alternative)
 
 ### 1. Prerequisites
 - **Python 3.11+** (Python 3.12 installed in `backend/venv`)
