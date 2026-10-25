@@ -3,6 +3,7 @@
  */
 
 import type {
+  AppConfigResponse,
   HealthResponse,
   SyllabusResponse,
   SyllabusSummary,
@@ -54,6 +55,11 @@ async function handleResponse<T>(response: Response): Promise<T> {
 export async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch(`${API_BASE}/health`);
   return handleResponse<HealthResponse>(res);
+}
+
+export async function fetchConfig(): Promise<AppConfigResponse> {
+  const res = await fetch(`${API_BASE}/config`);
+  return handleResponse<AppConfigResponse>(res);
 }
 
 export async function fetchSyllabiList(): Promise<SyllabusSummary[]> {

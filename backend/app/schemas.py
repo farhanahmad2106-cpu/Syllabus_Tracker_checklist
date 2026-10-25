@@ -236,3 +236,19 @@ class ExtractedCurriculum(BaseModel):
     program_title: Optional[str] = Field(default=None, description="Degree or program title, if explicitly mentioned")
     years: List[ExtractedYear] = Field(default_factory=list)
     extraction_notes: Optional[str] = Field(default=None, description="Notes on document structure or ambiguity")
+
+
+class AppConfigResponse(BaseModel):
+    """Safe frontend configuration metadata without exposing secrets."""
+    model_config = ConfigDict(strict=False)
+
+    max_upload_size_bytes: int
+    max_upload_size_mib: int
+    allowed_extensions: List[str]
+    active_provider: str
+    configured_model: str
+    active_model: Optional[str]
+    ollama_connected: bool
+    features: Dict[str, bool]
+    app_version: str
+    schema_version: int

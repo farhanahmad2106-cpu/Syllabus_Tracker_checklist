@@ -99,3 +99,21 @@ export interface SyllabusRenamePayload {
 }
 
 export type CheckboxCheckedState = boolean | 'indeterminate';
+
+export interface AppConfigResponse {
+  max_upload_size_bytes: number;
+  max_upload_size_mib: number;
+  allowed_extensions: string[];
+  active_provider: string;
+  configured_model: string;
+  active_model: string | null;
+  ollama_connected: boolean;
+  features: {
+    legacy_doc_conversion: boolean;
+    evidence_grounding: boolean;
+    tri_state_checkboxes: boolean;
+    leaf_only_persistence: boolean;
+  };
+  app_version: string;
+  schema_version: number;
+}

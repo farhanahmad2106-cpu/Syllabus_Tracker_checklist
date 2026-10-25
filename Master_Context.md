@@ -46,15 +46,16 @@
 ### Phase 4: Progress Engine & REST API [COMPLETED]
 - [x] Pure progress calculation engine in `backend/app/progress.py` (`completed_leaves / total_leaves * 100%`).
 - [x] Dynamic tri-state parent derivation (checked, unchecked, indeterminate).
-- [x] FastAPI application in `backend/app/main.py` implementing `/api/health`, `/api/syllabi`, `/api/upload`, `/api/syllabus/{id}`, `/api/syllabus/{id}/toggle-leaf`, `/api/syllabus/{id}/bulk-toggle` (supporting both `node_id` and explicit `leaf_ids`), and `/api/syllabus/{id}`.
-- [x] Schema extensions in `backend/app/schemas.py` including `evidence_status` and `source_document_id`.
+- [x] FastAPI application in `backend/app/main.py` implementing `/api/health`, `/api/config`, `/api/syllabi`, `/api/upload`, `/api/syllabus/{id}`, `/api/syllabus/{id}/toggle-leaf`, `/api/syllabus/{id}/bulk-toggle` (supporting both `node_id` and explicit `leaf_ids`), and `/api/syllabus/{id}`.
+- [x] Safe frontend configuration endpoint `GET /api/config` exposing non-sensitive runtime parameters (upload limits, allowed extensions, active model) without leaking private keys or filesystem paths.
+- [x] Schema extensions in `backend/app/schemas.py` including `evidence_status`, `source_document_id`, and `AppConfigResponse`.
 - [x] CORS middleware and domain exception handlers.
 - [x] Verified clean Python byte compilation via `python -m compileall backend/app`.
 
 ### Phase 5: React / TypeScript Frontend [COMPLETED]
-- [x] Canonical TypeScript interfaces in `frontend/src/types/syllabus.ts` (with `Year` alias, `evidence_status`, and `source_document_id`).
+- [x] Canonical TypeScript interfaces in `frontend/src/types/syllabus.ts` (with `Year` alias, `evidence_status`, `source_document_id`, and `AppConfigResponse`).
 - [x] Pure progress helper library in `frontend/src/lib/progress.ts`.
-- [x] Typed HTTP client in `frontend/src/lib/api.ts`.
+- [x] Typed HTTP client in `frontend/src/lib/api.ts` (including `fetchConfig`, `fetchHealth`, `fetchSyllabiList`, etc.).
 - [x] Custom hook `frontend/src/hooks/useSyllabus.ts` managing syllabus state, mutations, and Ollama diagnostics.
 - [x] Components:
   - `FileUpload.tsx`: Drag-and-drop syllabus upload with size and format checks (PDF, DOCX, DOC, TXT).

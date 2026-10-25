@@ -40,6 +40,7 @@ from backend.app.progress import (
     node_exists_in_syllabus,
 )
 from backend.app.schemas import (
+    AppConfigResponse,
     BulkToggleRequest,
     HierarchicalSyllabus,
     LeafToggleRequest,
@@ -156,6 +157,31 @@ def get_health() -> Dict[str, Any]:
             "available_models": available_models,
         },
     }
+
+
+@app.get("/api/config", response_model=AppConfigResponse)
+def get_app_config() -> AppConfigResponse:
+    """Return safe frontend configuration metadata without exposing secrets."""
+    is_ollama_up, available_models, _ = check_ollama_status()
+    preferred_model = get_preferred_model(available_models) if is_ollama_up else None
+
+    return AppConfigResponse(
+        max_upload_size_bytes=settings.MAX_UPLOAD_SIZE_BYTES,
+        max_upload_size_mib=settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024),
+        allowed_extensions=[".pdf", ".docx", ".doc", ".txt"],
+        active_provider="local_ollama",
+        configured_model=settings.OLLAMA_MODEL,
+        active_model=preferred_model,
+        ollama_connected=is_ollama_up,
+        features={
+            "legacy_doc_conversion": True,
+            "evidence_grounding": True,
+            "tri_state_checkboxes": True,
+            "leaf_only_persistence": True,
+        },
+        app_version="1.0.0",
+        schema_version=1,
+    )
 
 
 @app.get("/api/syllabi", response_model=List[SyllabusSummary])
