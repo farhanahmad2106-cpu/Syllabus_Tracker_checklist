@@ -1,24 +1,51 @@
-import React, { useRef, useState } from 'react';
-import { Loader2, Upload, AlertTriangle, RotateCw, XCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Upload, AlertTriangle, RotateCw, XCircle } from 'lucide-react';
+import type { UploadProgress } from '../types/syllabus';
 
 interface FileUploadProps {
   onUpload: (file: File) => Promise<unknown>;
   isUploading: boolean;
+  uploadProgress?: UploadProgress | null;
   onCancel?: () => void;
 }
 
 const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MiB
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.doc'];
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, onCancel }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({
+  onUpload,
+  isUploading,
+  uploadProgress,
+  onCancel,
+}) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [lastSelectedFile, setLastSelectedFile] = useState<File | null>(null);
+  const [maxObservedPercent, setMaxObservedPercent] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (uploadProgress && uploadProgress.percent > maxObservedPercent) {
+      setMaxObservedPercent(uploadProgress.percent);
+    }
+    if (!isUploading) {
+      setMaxObservedPercent(0);
+    }
+  }, [uploadProgress, isUploading, maxObservedPercent]);
+
+  const currentPercent = useMemo(() => {
+    if (!uploadProgress) return maxObservedPercent;
+    const raw = Math.max(0, Math.min(100, uploadProgress.percent));
+    return Math.max(maxObservedPercent, raw);
+  }, [uploadProgress, maxObservedPercent]);
+
+  const currentStage = uploadProgress?.stage || 'processing';
+  const stageDisplay = currentStage.replace(/_/g, ' ');
 
   const validateAndUpload = (file: File) => {
     setLocalError(null);
     setLastSelectedFile(file);
+    setMaxObservedPercent(0);
 
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!ACCEPTED_EXTENSIONS.includes(ext)) {
@@ -80,7 +107,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, o
           isDragOver
             ? 'border-emerald-400 bg-emerald-950/20 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
             : isUploading
-            ? 'border-emerald-500/50 bg-gray-900/80 cursor-wait'
+            ? 'border-emerald-500/50 bg-gray-900/90 cursor-wait'
             : 'border-gray-700 hover:border-gray-500 bg-gray-900/40 hover:bg-gray-800/40'
         }`}
       >
@@ -95,29 +122,62 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, o
         />
 
         {isUploading ? (
-          <div className="flex flex-col items-center gap-3 py-2 text-emerald-400 w-full text-center">
-            <Loader2 className="w-8 h-8 animate-spin" />
-            <div className="space-y-1">
+          <div className="w-full max-w-md py-2 px-1 space-y-3.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-emerald-400 text-sm">
+                {currentPercent}%
+              </span>
+              <span className="capitalize px-2.5 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 font-mono text-[10px] tracking-wide border border-emerald-800/50 shadow-sm">
+                Stage: {stageDisplay}
+              </span>
+            </div>
+
+            <div
+              className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-800 border border-zinc-700/60"
+              role="progressbar"
+              aria-label="Syllabus ingestion progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={currentPercent}
+              aria-valuetext={`${currentPercent}%: ${uploadProgress?.message || 'Processing syllabus'}`}
+            >
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-[width] duration-300 ease-out shadow-[0_0_12px_rgba(16,185,129,0.4)]"
+                style={{ width: `${currentPercent}%` }}
+              />
+            </div>
+
+            <div className="space-y-1 text-center">
               <p className="text-sm font-semibold text-gray-200">
-                Extracting Syllabus Curriculum...
+                {uploadProgress?.stage === 'completed'
+                  ? 'Syllabus Extracted Successfully!'
+                  : 'Extracting Syllabus Curriculum...'}
               </p>
-              <p className="text-xs text-gray-400">
-                Parsing layout and verifying source grounding via local Ollama LLM
+              <p
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="text-xs text-zinc-300 leading-relaxed font-medium min-h-[1.25rem]"
+              >
+                {uploadProgress?.message ||
+                  'Parsing layout and verifying source grounding via local Ollama LLM'}
               </p>
             </div>
 
             {onCancel && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCancel();
-                }}
-                className="mt-2 inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-rose-300 bg-rose-950/50 hover:bg-rose-900/50 border border-rose-800/60 rounded-lg transition-colors cursor-pointer"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Cancel Upload</span>
-              </button>
+              <div className="flex justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCancel();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-rose-300 bg-rose-950/50 hover:bg-rose-900/50 border border-rose-800/60 rounded-lg transition-colors cursor-pointer"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Cancel Upload</span>
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -133,7 +193,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, o
                 or drag and drop your syllabus
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Supports digital PDF, DOCX, DOC, and TXT (Max 25 MiB)
+                Supports digital PDF, DOCX, DOC, and TXT (Max 50 MiB)
               </p>
             </div>
           </div>

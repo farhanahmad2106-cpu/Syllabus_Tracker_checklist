@@ -13,6 +13,7 @@ import type {
   HealthResponse,
   SyllabusResponse,
   SyllabusSummary,
+  UploadProgress,
 } from '../types/syllabus';
 
 export function useSyllabus() {
@@ -62,12 +63,14 @@ export function useSyllabus() {
   }, []);
 
   const [activeUploadController, setActiveUploadController] = useState<AbortController | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
 
   const cancelUpload = useCallback(() => {
     if (activeUploadController) {
       activeUploadController.abort('UPLOAD_CANCELLED');
       setActiveUploadController(null);
       setIsUploading(false);
+      setUploadProgress(null);
       setError('Upload cancelled.');
     }
   }, [activeUploadController]);
@@ -76,9 +79,22 @@ export function useSyllabus() {
     const controller = new AbortController();
     setActiveUploadController(controller);
     setIsUploading(true);
+    setUploadProgress({
+      job_id: '',
+      stage: 'queued',
+      percent: 0,
+      message: `Uploading ${file.name}...`,
+      result: null,
+      error: null,
+    });
     setError(null);
     try {
-      const result = await uploadSyllabusFile(file, { signal: controller.signal });
+      const result = await uploadSyllabusFile(file, {
+        signal: controller.signal,
+        onProgress: (p) => {
+          setUploadProgress(p);
+        },
+      });
       setActiveSyllabus(result);
       await refreshList();
       return result;
@@ -88,6 +104,7 @@ export function useSyllabus() {
       throw err;
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
       setActiveUploadController(null);
     }
   }, [refreshList]);
@@ -151,6 +168,7 @@ export function useSyllabus() {
     health,
     isLoading,
     isUploading,
+    uploadProgress,
     isMutating,
     error,
     clearError,

@@ -85,4 +85,73 @@ describe('FileUpload Component', () => {
     fireEvent.click(retryBtn);
     expect(onUpload).toHaveBeenCalledTimes(2);
   });
+
+  it('renders real-time progress percentage, stage indicator, and aria attributes', () => {
+    const onUpload = vi.fn().mockResolvedValue({});
+    const progress = {
+      job_id: 'test-job-123',
+      stage: 'extracting' as const,
+      percent: 54,
+      message: 'Extracting Semester 2 curriculum: chunk 3 of 7.',
+      result: null,
+      error: null,
+    };
+
+    render(
+      <FileUpload
+        onUpload={onUpload}
+        isUploading={true}
+        uploadProgress={progress}
+      />
+    );
+
+    expect(screen.getByText('54%')).toBeInTheDocument();
+    expect(screen.getByText(/Stage: extracting/i)).toBeInTheDocument();
+    expect(screen.getByText(/Extracting Semester 2 curriculum: chunk 3 of 7\./i)).toBeInTheDocument();
+
+    const progressbar = screen.getByRole('progressbar');
+    expect(progressbar).toHaveAttribute('aria-valuenow', '54');
+    expect(progressbar).toHaveAttribute('aria-valuemin', '0');
+    expect(progressbar).toHaveAttribute('aria-valuemax', '100');
+  });
+
+  it('ensures percentage is monotonic and does not decrease', () => {
+    const onUpload = vi.fn().mockResolvedValue({});
+    const progressHigh = {
+      job_id: 'test-job-123',
+      stage: 'extracting' as const,
+      percent: 65,
+      message: 'Chunk 4 of 6',
+      result: null,
+      error: null,
+    };
+
+    const { rerender } = render(
+      <FileUpload
+        onUpload={onUpload}
+        isUploading={true}
+        uploadProgress={progressHigh}
+      />
+    );
+
+    expect(screen.getByText('65%')).toBeInTheDocument();
+
+    // Rerender with lower percentage
+    const progressLow = {
+      ...progressHigh,
+      percent: 40,
+    };
+
+    rerender(
+      <FileUpload
+        onUpload={onUpload}
+        isUploading={true}
+        uploadProgress={progressLow}
+      />
+    );
+
+    // Still displays 65% because of monotonic protection
+    expect(screen.getByText('65%')).toBeInTheDocument();
+    expect(screen.queryByText('40%')).not.toBeInTheDocument();
+  });
 });

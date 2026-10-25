@@ -63,7 +63,7 @@ def test_upload_txt_syllabus_success(client, monkeypatch):
         "- Functions and Recursion\n"
     )
     files = {"file": ("syllabus.txt", content.encode("utf-8"), "text/plain")}
-    res = client.post("/api/upload", files=files)
+    res = client.post("/api/upload?sync=true", files=files)
     assert res.status_code == 201
     data = res.json()
     assert data["syllabus"]["title"] == "Bachelor of Science in Computer Science"
@@ -181,7 +181,7 @@ def test_upload_processing_timeout_returns_504(client, monkeypatch):
 
     monkeypatch.setattr("backend.app.main.asyncio.to_thread", lambda *args, **kwargs: mock_hang())
     files = {"file": ("syllabus.txt", b"CS101 Topics\n- Intro", "text/plain")}
-    res = client.post("/api/upload", files=files)
+    res = client.post("/api/upload?sync=true", files=files)
     assert res.status_code == 504
     data = res.json()
     assert data["code"] == "DOCUMENT_PROCESSING_TIMEOUT"
@@ -195,9 +195,77 @@ def test_upload_oserror_resource_exhausted_returns_503(client, monkeypatch):
 
     monkeypatch.setattr("backend.app.main.ingest_syllabus_document", mock_resource_error)
     files = {"file": ("syllabus.txt", b"CS101 Topics\n- Intro", "text/plain")}
-    res = client.post("/api/upload", files=files)
+    res = client.post("/api/upload?sync=true", files=files)
     assert res.status_code == 503
     data = res.json()
     assert data["code"] == "SYSTEM_RESOURCE_EXHAUSTED"
     assert data["retryable"] is True
+
+
+def test_upload_async_job_and_polling(client, monkeypatch):
+    """Verify POST /api/upload returns 202 Accepted with job_id and GET /api/upload/jobs/{id} returns status."""
+    from backend.app.extractor import extract_curriculum_rule_based
+    monkeypatch.setattr("backend.app.services.ingestion.extract_curriculum", lambda doc, **kwargs: extract_curriculum_rule_based(doc))
+
+    content = "Computer Science\nYear 1\nSemester 1\nCourse 101\n- Topic A\n- Topic B\n"
+    files = {"file": ("async_syllabus.txt", content.encode("utf-8"), "text/plain")}
+    res = client.post("/api/upload", files=files)
+    assert res.status_code == 202
+    data = res.json()
+    assert "job_id" in data
+    assert data["stage"] == "queued"
+    assert data["percent"] == 0
+
+    job_id = data["job_id"]
+    # Poll job status
+    poll_res = client.get(f"/api/upload/jobs/{job_id}")
+    assert poll_res.status_code == 200
+    poll_data = poll_res.json()
+    assert poll_data["job_id"] == job_id
+    assert poll_data["stage"] in [
+        "queued", "validating", "parsing", "chunking", "extracting",
+        "validating_result", "persisting", "completed"
+    ]
+
+
+def test_upload_job_cancellation_endpoint(client, monkeypatch):
+    """Verify POST /api/upload/jobs/{id}/cancel requests cancellation."""
+    from backend.app.extractor import extract_curriculum_rule_based
+    monkeypatch.setattr("backend.app.services.ingestion.extract_curriculum", lambda doc, **kwargs: extract_curriculum_rule_based(doc))
+
+    content = "Mathematics\nYear 1\nSemester 1\nCalculus\n- Limits\n"
+    files = {"file": ("math.txt", content.encode("utf-8"), "text/plain")}
+    res = client.post("/api/upload", files=files)
+    assert res.status_code == 202
+    job_id = res.json()["job_id"]
+
+    cancel_res = client.post(f"/api/upload/jobs/{job_id}/cancel")
+    assert cancel_res.status_code == 200
+    assert cancel_res.json()["status"] in ["cancellation_requested", "already_terminal"]
+
+
+def test_upload_unknown_job_returns_404(client):
+    """Verify 404 for nonexistent job IDs."""
+    res = client.get("/api/upload/jobs/00000000-0000-0000-0000-000000000000")
+    assert res.status_code == 404
+
+    res2 = client.get("/api/upload/progress/00000000-0000-0000-0000-000000000000")
+    assert res2.status_code == 404
+
+    res3 = client.post("/api/upload/jobs/00000000-0000-0000-0000-000000000000/cancel")
+    assert res3.status_code == 404
+
+
+def test_upload_progress_sse_stream_initial_event(client):
+    """Verify SSE endpoint streams initial progress event with valid framing."""
+    from backend.app.services.job_manager import job_manager
+    job = job_manager.create_job(initial_message="Initial test queue.")
+    job_manager.mark_completed(job.job_id, result={}, message="Completed test.")
+
+    with client.stream("GET", f"/api/upload/progress/{job.job_id}") as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        first_line = next(response.iter_lines())
+        assert first_line.startswith("id: ")
+
 

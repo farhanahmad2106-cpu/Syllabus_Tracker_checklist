@@ -1,7 +1,7 @@
 """Canonical Pydantic v2 schemas and data contracts."""
 
 from datetime import datetime, timezone
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -268,3 +268,25 @@ class AppConfigResponse(BaseModel):
     features: Dict[str, bool]
     app_version: str
     schema_version: int
+
+
+class StartUploadResponse(BaseModel):
+    """Response returned immediately after staging an upload and registering an ingestion job."""
+    model_config = ConfigDict(strict=False)
+
+    job_id: str
+    stage: str = "queued"
+    percent: int = 0
+    message: str = "Upload accepted. Waiting for document processing."
+
+
+class JobProgressResponse(BaseModel):
+    """Current state and progress snapshot of an ingestion job."""
+    model_config = ConfigDict(strict=False)
+
+    job_id: str
+    stage: str
+    percent: int
+    message: str
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None

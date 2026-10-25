@@ -137,7 +137,10 @@ Navigate to [http://localhost:5173](http://localhost:5173).
 | `GET` | `/api/health` | Application liveness, SQLite readiness, and Ollama diagnostics |
 | `GET` | `/api/config` | Safe configuration metadata (allowed formats, upload limits) |
 | `GET` | `/api/syllabi` | List all saved syllabi and progress totals |
-| `POST` | `/api/upload` | Multipart upload, structure extraction, validation, and atomic commit |
+| `POST` | `/api/upload` | Multipart upload returning 202 Accepted with `job_id` (supports `?sync=true`) |
+| `GET` | `/api/upload/progress/{id}` | Real-time Server-Sent Events (SSE) progress stream (0–100% with heartbeats) |
+| `GET` | `/api/upload/jobs/{id}` | Polling fallback for upload job progress snapshot |
+| `POST` | `/api/upload/jobs/{id}/cancel` | Explicit cancellation of in-progress syllabus ingestion |
 | `GET` | `/api/syllabus/{id}` | Canonical hierarchy, completed leaves, and derived progress |
 | `PATCH` | `/api/syllabus/{id}/toggle-leaf` | Idempotently toggle a single subtopic leaf |
 | `PATCH` | `/api/syllabus/{id}/bulk-toggle` | Atomically toggle descendant leaves under any branch or explicit IDs |
@@ -152,7 +155,7 @@ Navigate to [http://localhost:5173](http://localhost:5173).
 ```powershell
 .\backend\venv\Scripts\python -m pytest backend/tests -v
 ```
-*Current suite status: 47 passed in 1.53s.*
+*Current suite status: 60 passed in 1.98s.*
 
 ### Frontend Test Suite & Typecheck
 ```powershell
@@ -160,7 +163,7 @@ npm --prefix frontend run test
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
 ```
-*Current suite status: 10 passed in 4.17s; clean production build in 1.44s.*
+*Current suite status: 12 passed in 2.90s; clean production build in 1.80s.*
 
 ---
 

@@ -23,6 +23,7 @@ export const App: React.FC = () => {
     health,
     isLoading,
     isUploading,
+    uploadProgress,
     isMutating,
     error,
     clearError,
@@ -316,6 +317,7 @@ export const App: React.FC = () => {
                 setShowUploadModal(false);
               }}
               isUploading={isUploading}
+              uploadProgress={uploadProgress}
               onCancel={cancelUpload}
             />
 

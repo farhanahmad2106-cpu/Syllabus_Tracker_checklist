@@ -3,12 +3,16 @@
 import asyncio
 import json
 import logging
+import os
+import shutil
+import tempfile
+import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
@@ -44,12 +48,16 @@ from backend.app.schemas import (
     AppConfigResponse,
     BulkToggleRequest,
     HierarchicalSyllabus,
+    JobProgressResponse,
     LeafToggleRequest,
+    StartUploadResponse,
     SyllabusRenameRequest,
     SyllabusResponse,
     SyllabusSummary,
 )
-from backend.app.services.ingestion import ingest_syllabus_document
+from backend.app.parser import validate_file_metadata
+from backend.app.services.ingestion import ingest_syllabus_document, process_ingestion_job
+from backend.app.services.job_manager import job_manager
 
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger(__name__)
@@ -201,77 +209,252 @@ def list_syllabi(session: Session = Depends(get_db)):
 upload_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_PARSING_JOBS)
 
 
-@app.post("/api/upload", response_model=SyllabusResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/api/upload", status_code=status.HTTP_202_ACCEPTED)
 async def upload_syllabus(
     file: UploadFile = File(...),
+    sync: bool = False,
     session: Session = Depends(get_db),
 ):
     """
-    Upload and ingest an academic syllabus document (PDF, DOCX, TXT).
-    Parses document, extracts 5-level hierarchy via Ollama/Instructor, validates grounding,
-    and commits to SQLite transactionally.
+    Accepts syllabus upload (PDF, DOCX, DOC, TXT).
+    By default, stages file asynchronously and returns 202 Accepted with a unique job_id
+    for real-time SSE progress tracking.
+    When sync=True is passed, executes synchronously for legacy clients/tests.
     """
     if not file.filename:
         raise FileValidationError("Upload must include a valid filename.")
 
-    content = await file.read()
-    if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
+    ext = os.path.splitext(file.filename)[1].lower()
+    from backend.app.parser import ALLOWED_EXTENSIONS
+    if ext not in ALLOWED_EXTENSIONS:
         raise FileValidationError(
-            f"File exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE_BYTES // (1024*1024)} MiB."
+            f"Unsupported file format '{ext}'. Allowed formats: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
         )
 
-    timeout_seconds = float(settings.PARSER_TIMEOUT_SECONDS + settings.LLM_TIMEOUT_SECONDS)
+    # Synchronous execution mode (for testing or legacy scripts)
+    if sync:
+        content = await file.read()
+        if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
+            raise FileValidationError(
+                f"File exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE_BYTES // (1024*1024)} MiB."
+            )
+        timeout_seconds = float(settings.PARSER_TIMEOUT_SECONDS + settings.LLM_TIMEOUT_SECONDS)
+        try:
+            async with upload_semaphore:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        ingest_syllabus_document,
+                        session=session,
+                        file_bytes=content,
+                        filename=file.filename,
+                        allow_fallback_extraction=True,
+                    ),
+                    timeout=timeout_seconds,
+                )
+                session.commit()
+                return JSONResponse(status_code=status.HTTP_201_CREATED, content=response.model_dump())
+        except asyncio.TimeoutError:
+            session.rollback()
+            logger.error(
+                "document.processing.timeout filename=%s limit=%ds",
+                file.filename,
+                int(timeout_seconds),
+            )
+            return JSONResponse(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                content={
+                    "detail": f"Processing for '{file.filename}' exceeded the server time limit of {int(timeout_seconds)}s.",
+                    "error_type": "DocumentProcessingTimeout",
+                    "code": "DOCUMENT_PROCESSING_TIMEOUT",
+                    "retryable": True,
+                },
+            )
+        except OSError as os_err:
+            session.rollback()
+            logger.error(
+                "document.processing.os_error filename=%s err=%s",
+                file.filename,
+                os_err,
+                exc_info=True,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "detail": "System resources are temporarily exhausted. Please ensure the document is a digital text-based PDF, DOCX, or TXT file.",
+                    "error_type": "SystemResourceExhausted",
+                    "code": "SYSTEM_RESOURCE_EXHAUSTED",
+                    "retryable": True,
+                },
+            )
+        except Exception:
+            session.rollback()
+            raise
+
+    # Standard Asynchronous Job Workflow: Stream to isolated staging directory
+    temp_dir = tempfile.mkdtemp(prefix="upload_job_")
+    staged_path = os.path.join(temp_dir, f"staged_{uuid.uuid4().hex[:8]}{ext}")
+    total_bytes = 0
 
     try:
-        async with upload_semaphore:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    ingest_syllabus_document,
-                    session=session,
-                    file_bytes=content,
-                    filename=file.filename,
-                    allow_fallback_extraction=True,
-                ),
-                timeout=timeout_seconds,
-            )
-            session.commit()
-            return response
-    except asyncio.TimeoutError:
-        session.rollback()
-        logger.error(
-            "document.processing.timeout filename=%s limit=%ds",
-            file.filename,
-            int(timeout_seconds),
-        )
-        return JSONResponse(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            content={
-                "detail": f"Processing for '{file.filename}' exceeded the server time limit of {int(timeout_seconds)}s.",
-                "error_type": "DocumentProcessingTimeout",
-                "code": "DOCUMENT_PROCESSING_TIMEOUT",
-                "retryable": True,
-            },
-        )
-    except OSError as os_err:
-        session.rollback()
-        logger.error(
-            "document.processing.os_error filename=%s err=%s",
-            file.filename,
-            os_err,
-            exc_info=True,
-        )
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "detail": "System resources are temporarily exhausted. Please ensure the document is a digital text-based PDF, DOCX, or TXT file.",
-                "error_type": "SystemResourceExhausted",
-                "code": "SYSTEM_RESOURCE_EXHAUSTED",
-                "retryable": True,
-            },
-        )
+        with open(staged_path, "wb") as f_out:
+            while chunk := await file.read(65536):
+                total_bytes += len(chunk)
+                if total_bytes > settings.MAX_UPLOAD_SIZE_BYTES:
+                    f_out.close()
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    raise FileValidationError(
+                        f"File exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE_BYTES // (1024*1024)} MiB."
+                    )
+                f_out.write(chunk)
+
+        if total_bytes == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise FileValidationError("Uploaded file is empty (0 bytes).")
+
     except Exception:
-        session.rollback()
+        shutil.rmtree(temp_dir, ignore_errors=True)
         raise
+
+    # Register in job manager
+    job = job_manager.create_job(
+        staging_file_path=staged_path,
+        staging_dir_path=temp_dir,
+        initial_message=f"Upload of '{file.filename}' accepted. Queued for processing.",
+    )
+
+    # Schedule background worker
+    async def _run_worker():
+        async with upload_semaphore:
+            await asyncio.to_thread(
+                process_ingestion_job,
+                job_id=job.job_id,
+                file_path=staged_path,
+                filename=file.filename,
+            )
+
+    asyncio.create_task(_run_worker())
+
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=StartUploadResponse(
+            job_id=job.job_id,
+            stage=job.stage,
+            percent=job.percent,
+            message=job.message,
+        ).model_dump(),
+    )
+
+
+@app.get("/api/upload/progress/{job_id}")
+async def stream_upload_progress(job_id: str, request: Request):
+    """
+    Server-Sent Events (SSE) endpoint emitting real-time progress updates for an ingestion job.
+    Framing:
+      id: {monotonic_id}
+      event: progress
+      data: {json}
+    Periodically emits ': keep-alive\n\n' heartbeats. Closes on terminal states or client disconnection.
+    """
+    job = job_manager.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Upload job '{job_id}' not found.",
+        )
+
+    queue = job_manager.subscribe(job_id)
+    if queue is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Upload job '{job_id}' not found.",
+        )
+
+    async def event_generator():
+        event_id = 1
+        try:
+            # 1. Send initial progress snapshot immediately
+            initial_job = job_manager.get(job_id)
+            if initial_job:
+                payload = initial_job.model_dump_json()
+                yield f"id: {event_id}\nevent: progress\ndata: {payload}\n\n"
+                event_id += 1
+                if initial_job.stage in {"completed", "failed", "cancelled"}:
+                    return
+
+            # 2. Stream updates with client disconnection checks
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    snapshot = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    payload = snapshot.model_dump_json()
+                    yield f"id: {event_id}\nevent: progress\ndata: {payload}\n\n"
+                    event_id += 1
+                    if snapshot.stage in {"completed", "failed", "cancelled"}:
+                        break
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
+                    curr = job_manager.get(job_id)
+                    if curr and curr.stage in {"completed", "failed", "cancelled"}:
+                        payload = curr.model_dump_json()
+                        yield f"id: {event_id}\nevent: progress\ndata: {payload}\n\n"
+                        break
+                    yield ": keep-alive\n\n"
+        finally:
+            job_manager.unsubscribe(job_id, queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/upload/jobs/{job_id}", response_model=JobProgressResponse)
+def get_upload_job_status(job_id: str):
+    """Polling fallback endpoint returning current job progress snapshot."""
+    job = job_manager.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Upload job '{job_id}' not found.",
+        )
+    return JobProgressResponse(
+        job_id=job.job_id,
+        stage=job.stage,
+        percent=job.percent,
+        message=job.message,
+        result=job.result,
+        error=job.error,
+    )
+
+
+@app.post("/api/upload/jobs/{job_id}/cancel")
+def cancel_upload_job(job_id: str):
+    """Explicitly request cancellation for an in-progress upload job."""
+    job = job_manager.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Upload job '{job_id}' not found.",
+        )
+    if job.stage in {"completed", "failed", "cancelled"}:
+        return {
+            "job_id": job_id,
+            "status": "already_terminal",
+            "stage": job.stage,
+        }
+    success = job_manager.request_cancel(job_id)
+    return {
+        "job_id": job_id,
+        "status": "cancellation_requested",
+        "success": success,
+    }
 
 
 @app.get("/api/syllabus/{syllabus_id}", response_model=SyllabusResponse)

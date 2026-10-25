@@ -123,5 +123,43 @@
   - TypeScript typecheck: `tsc --noEmit` passed with 0 errors.
   - Production build: `npm run build` succeeded in 1.44s.
 
+### Phase 8: Real-Time Upload Progress, Resumable SSE Job Tracking, and Timeout-Resistant Chunked Ingestion [COMPLETED]
+- [x] Thread-Safe In-Memory Job Manager (`backend/app/services/job_manager.py`):
+  - Model `JobProgress` tracking `job_id`, `stage`, `percent`, `message`, `result`, `error`, `created_at`, `updated_at`, `cancel_requested`.
+  - Atomic thread-safe updates protected by `threading.RLock`.
+  - Strict monotonic progress enforcement (progress can never decrease, clamped 0–100%).
+  - Terminal state immutability (`completed`, `failed`, `cancelled` can never transition back to active).
+  - Snapshot isolation: returns validated immutable copies (`get`, `update`, `create_job`).
+  - Subscriber fan-out with `asyncio.Queue` for Server-Sent Events.
+  - Automatic isolation and cleanup of staging files/directories.
+- [x] Semantic Chunking Pipeline for Large Syllabi (`backend/app/services/chunking.py`):
+  - Documents exceeding 15,000 characters partitioned along semester/year boundaries (`Semester 1`, `Year 1`, course headings).
+  - Paragraph-boundary sizing fallback for long unstructured sections.
+  - Provable page provenance retained per chunk.
+  - Sequential chunk extraction pipeline with weighted milestones ($P = 40 + 45 \times \frac{\text{completed}}{\text{total}}$).
+  - Cooperative cancellation checks before and after each chunk.
+  - Deterministic multi-chunk curriculum merger (`merge_extracted_curricula`) resolving conflicting metadata and deduplicating courses.
+- [x] Asynchronous Ingestion & Persistence (`backend/app/services/ingestion.py`):
+  - Implemented `process_ingestion_job` executing stages asynchronously in worker threads.
+  - Clear stages: `queued` (0%), `validating` (5%), `parsing` (10-30%), `chunking` (30-40%), `extracting` (40-85%), `validating_result` (85-95%), `persisting` (95-99%), and `completed` (100%).
+  - Single-transaction atomic SQLite writes with automatic rollback on error or cancellation.
+  - Preserved synchronous `ingest_syllabus_document` for backward compatibility (`?sync=true`).
+- [x] Real-Time SSE Endpoint & Job API (`backend/app/main.py`):
+  - `POST /api/upload` streams file to isolated staging disk and immediately returns `202 Accepted` with `StartUploadResponse`.
+  - `GET /api/upload/progress/{job_id}`: Standard SSE stream (`id:`, `event: progress`, `data: {json}`) with `: keep-alive\n\n` heartbeats and client disconnection awareness (`request.is_disconnected()`).
+  - `GET /api/upload/jobs/{job_id}`: Polling fallback returning `JobProgressResponse`.
+  - `POST /api/upload/jobs/{job_id}/cancel`: Explicit cooperative cancellation.
+- [x] Accessible React Progress UI & Client Architecture (`frontend`):
+  - Extended domain types in `types/syllabus.ts` (`UploadStage`, `StartUploadResponse`, `UploadProgress`).
+  - Implemented `startUploadJob`, `subscribeUploadProgress`, `cancelUploadJob`, and `pollJobStatus` in `frontend/src/lib/api.ts` with automatic polling fallback if SSE encounters interruption.
+  - Updated `useSyllabus.ts` to manage upload state, expose `uploadProgress`, and support user cancellation.
+  - Updated `FileUpload.tsx` with accessible progress bar (`role="progressbar"`), ARIA bounds, current percentage, stage badge, status message, and cancellation button.
+- [x] Verification & Automated Test Suite:
+  - Backend tests: 60 passed out of 60 in 1.98s (`pytest backend/tests`).
+  - Frontend tests: 12 passed out of 12 in 2.90s (`vitest run`).
+  - TypeScript typecheck: `tsc --noEmit` passed with 0 errors.
+  - Production build: `npm run build` succeeded in 1.80s.
+  - End-to-end integration test: `test_large_multipage_pdf_chunked_ingestion` passed with synthetic multi-page document exceeding 15,000 characters.
+
 ### Current Repository Status
 - Codebase complete, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.

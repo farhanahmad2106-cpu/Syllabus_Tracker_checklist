@@ -118,3 +118,31 @@ export interface AppConfigResponse {
   app_version: string;
   schema_version: number;
 }
+
+export type UploadStage =
+  | 'queued'
+  | 'validating'
+  | 'parsing'
+  | 'chunking'
+  | 'extracting'
+  | 'validating_result'
+  | 'persisting'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface StartUploadResponse {
+  job_id: string;
+  stage: UploadStage;
+  percent: number;
+  message: string;
+}
+
+export interface UploadProgress {
+  job_id: string;
+  stage: UploadStage;
+  percent: number;
+  message: string;
+  result: SyllabusResponse | null;
+  error: string | null;
+}
