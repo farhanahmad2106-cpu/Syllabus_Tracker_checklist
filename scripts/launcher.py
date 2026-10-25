@@ -224,7 +224,7 @@ class ConfigManager:
         self.logs_dir = self.base_dir / "logs"
         self.config_file = self.base_dir / "config.json"
         self.instance_file = self.state_dir / "instance.json"
-        self.lock_file = self.state_dir / "supervisor.lock"
+        self.lock_file = self.state_dir / "launcher.lock"
 
         self.ensure_dirs()
         self.config: Dict[str, Any] = self.load_or_create_config(explicit_root)
@@ -738,21 +738,18 @@ class Supervisor:
             self._write_instance_state()
 
             # 7. Print Readiness Banner
-            ollama_label = "AVAILABLE" if self._is_ollama_ready() else ("OPTIONAL (Offline)" if not self.config["ollama"].get("required") else "FAILED")
+            ollama_label = f"Ollama ({self.state.ollama_url})" if self._is_ollama_ready() else ("Ollama (Optional / Offline)" if not self.config["ollama"].get("required") else "Ollama (Offline)")
             print()
             print("==============================================================")
-            print("  Syllabus Tracker - Services Ready")
+            print(f"  {APP_DISPLAY_NAME}")
             print("==============================================================")
-            print(f"  Supervisor : RUNNING (PID {os.getpid()})")
-            print(f"  Backend    : READY   ({self.state.backend_url})")
-            print(f"  Frontend   : READY   ({self.state.frontend_url})")
-            print(f"  Ollama     : {ollama_label} ({self.state.ollama_url})")
-            print(f"  API Docs   : {self.state.backend_url}/docs")
-            print(f"  Logs       : {self.config_mgr.logs_dir}")
-            print(f"  Config     : {self.config_mgr.config_file}")
+            print(f"  Frontend UI : {self.state.frontend_url}")
+            print(f"  API Backend : {self.state.backend_url}")
+            print(f"  API Docs    : {self.state.backend_url}/docs")
+            print(f"  Local LLM   : {ollama_label}")
             print("==============================================================")
-            print("  Press Ctrl+C to stop services.")
-            print("  Run 'syllabus stop' from another terminal to stop them.")
+            print("  Status      : All services active and healthy.")
+            print("  Press [Ctrl+C] to stop all services.")
             print("==============================================================")
             print()
 
