@@ -39,19 +39,19 @@ def verify_grounding(snippet: str, source_text: str) -> bool:
 def derive_academic_year_number(semester_title: str, semester_number: Optional[int]) -> Optional[int]:
     """
     Derive academic year from sequential semester numbering:
-    year = ceil(semester_number / 2)
+    academic_year = (semester_number + 1) // 2
     Valid only for sequential semester numbering like 'Semester 1', 'Semester 2', 'Sem 3', etc.
     Does not apply to ambiguous seasonal labels like 'Spring', 'Fall', 'Semester A'.
     """
     if semester_number is not None and semester_number > 0:
-        return math.ceil(semester_number / 2)
+        return (semester_number + 1) // 2
 
     # Try extracting numeric semester from title like "Semester 3" or "Sem 4"
     match = re.search(r"\b(?:semester|sem)\s*#?\s*(\d+)\b", semester_title, re.IGNORECASE)
     if match:
         sem_num = int(match.group(1))
         if sem_num > 0:
-            return math.ceil(sem_num / 2)
+            return (sem_num + 1) // 2
 
     return None
 
@@ -137,6 +137,7 @@ def canonicalize_extracted_curriculum(
                         source_location=ext_sub.source_location,
                         source_document_id=syllabus_id,
                         evidence_status=evidence_status,
+                        grounding_status=evidence_status,
                         order_index=sub_idx,
                     )
                     canonical_subtopics.append(subtopic)

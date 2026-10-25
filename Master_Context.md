@@ -99,5 +99,26 @@
   - TypeScript typecheck passed with 0 errors (`npm run typecheck`).
   - Production build completed successfully in 2.14s (`npm run build`).
 
+### Phase 7: Master Engineering Audit, Limits Alignment & Verification [COMPLETED]
+- [x] Aligned Application Limits with Master Engineering Specification:
+  - `MAX_UPLOAD_SIZE_BYTES = 52428800` (50 MiB) enforced across backend `config.py` and frontend `FileUpload.tsx`.
+  - `MAX_PDF_PAGES = 300` in `config.py`.
+  - `MAX_EXTRACTED_TEXT_CHARS = 1500000` in `config.py`.
+  - `PARSER_TIMEOUT_SECONDS = 300` in `config.py`.
+  - `DOC_CONVERSION_TIMEOUT_SECONDS = 30` in `config.py` and plumbed directly into `parser.py` LibreOffice conversion.
+  - Client-side upload timeout updated to 300s (300,000 ms) with `AbortController` in `frontend/src/lib/api.ts`.
+- [x] Schema & Grounding Status Alignment:
+  - Extended `Subtopic` in `backend/app/schemas.py` and `frontend/src/types/syllabus.ts` to support `Literal["verified", "needs_review", "unverified"]`.
+  - Added `grounding_status` alias synced bidirectionally with `evidence_status`.
+  - Updated `SourceEvidence.tsx` badge rendering: `verified` (emerald), `needs_review` (amber), and `unverified` (rose).
+- [x] Academic-Year Inference Formula:
+  - Grounded `derive_academic_year_number` in `backend/app/validation.py` to the strict `academic_year = (semester_number + 1) // 2` integer arithmetic formula.
+- [x] Test Coverage & Build Verification:
+  - Added unit test in `frontend/src/__tests__/FileUpload.test.tsx` verifying client-side rejection of files >50 MiB.
+  - Backend tests: 47 passed out of 47 in 1.53s (`pytest backend/tests`).
+  - Frontend tests: 10 passed out of 10 in 4.17s (`vitest run`).
+  - TypeScript typecheck: `tsc --noEmit` passed with 0 errors.
+  - Production build: `npm run build` succeeded in 1.44s.
+
 ### Current Repository Status
 - Codebase complete, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.

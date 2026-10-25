@@ -9,7 +9,8 @@ export interface Subtopic {
   source_page: number | null;
   source_location?: string | Record<string, unknown> | null;
   source_document_id?: string | null;
-  evidence_status?: 'verified' | 'needs_review';
+  evidence_status?: 'verified' | 'needs_review' | 'unverified';
+  grounding_status?: 'verified' | 'needs_review' | 'unverified';
   order_index: number;
 }
 

@@ -15,8 +15,24 @@ class Subtopic(BaseModel):
     source_page: Optional[int] = Field(default=None, description="1-based page number if available")
     source_location: Optional[Union[str, Dict]] = Field(default=None, description="Section, heading, or paragraph location")
     source_document_id: Optional[str] = Field(default=None, description="Reference to ingestion document")
-    evidence_status: Literal["verified", "needs_review"] = Field(default="verified", description="Grounding verification status")
+    evidence_status: Literal["verified", "needs_review", "unverified"] = Field(
+        default="verified", description="Grounding verification status"
+    )
+    grounding_status: Optional[str] = Field(
+        default=None, description="Grounding verification status alias"
+    )
     order_index: int = Field(default=0, ge=0)
+
+    @field_validator("grounding_status", mode="before")
+    @classmethod
+    def populate_grounding_status(cls, v, info):
+        return v
+
+    def model_post_init(self, __context) -> None:
+        if self.grounding_status is None:
+            self.grounding_status = self.evidence_status
+        elif self.evidence_status is None:
+            self.evidence_status = self.grounding_status  # type: ignore
 
     @field_validator("id", "title", "source_text")
     @classmethod

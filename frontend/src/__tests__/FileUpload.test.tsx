@@ -36,6 +36,20 @@ describe('FileUpload Component', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/Selected file is empty/i);
   });
 
+  it('rejects files exceeding 50 MiB limit client-side', () => {
+    const onUpload = vi.fn().mockResolvedValue({});
+    render(<FileUpload onUpload={onUpload} isUploading={false} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const oversizedFile = new File(['a'], 'huge.pdf', { type: 'application/pdf' });
+    Object.defineProperty(oversizedFile, 'size', { value: 55 * 1024 * 1024 });
+
+    fireEvent.change(input, { target: { files: [oversizedFile] } });
+
+    expect(onUpload).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/exceeds 50 MiB limit/i);
+  });
+
   it('shows loading state and Cancel button when isUploading is true', () => {
     const onUpload = vi.fn().mockResolvedValue({});
     const onCancel = vi.fn();

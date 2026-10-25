@@ -273,7 +273,7 @@ def convert_doc_to_docx(doc_path: str, output_dir: str) -> str:
         subprocess.run(
             [soffice_path, "--headless", "--convert-to", "docx", "--outdir", output_dir, doc_path],
             check=True,
-            timeout=30,
+            timeout=settings.DOC_CONVERSION_TIMEOUT_SECONDS,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -283,7 +283,9 @@ def convert_doc_to_docx(doc_path: str, output_dir: str) -> str:
             raise DocumentParserError(f"LibreOffice conversion failed: {converted_docx} was not created.")
         return converted_docx
     except subprocess.TimeoutExpired:
-        raise DocumentParserError("LibreOffice conversion timed out after 30 seconds.")
+        raise DocumentParserError(
+            f"LibreOffice conversion timed out after {settings.DOC_CONVERSION_TIMEOUT_SECONDS} seconds."
+        )
     except Exception as e:
         if isinstance(e, DocumentParserError):
             raise

@@ -7,7 +7,7 @@ interface FileUploadProps {
   onCancel?: () => void;
 }
 
-const MAX_SIZE_BYTES = 25 * 1024 * 1024; // 25 MiB
+const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MiB
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.doc'];
 
 export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, onCancel }) => {
@@ -28,7 +28,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, o
 
     if (file.size > MAX_SIZE_BYTES) {
       setLocalError(
-        `File size exceeds 25 MiB limit (${(file.size / (1024 * 1024)).toFixed(1)} MiB).`
+        `File size exceeds 50 MiB limit (${(file.size / (1024 * 1024)).toFixed(1)} MiB).`
       );
       return;
     }

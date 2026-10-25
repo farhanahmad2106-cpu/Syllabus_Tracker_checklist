@@ -99,7 +99,7 @@ export async function uploadSyllabusFile(
   file: File,
   options?: UploadOptions
 ): Promise<SyllabusResponse> {
-  const timeoutMs = options?.timeoutMs ?? 90_000;
+  const timeoutMs = options?.timeoutMs ?? 300_000;
   const controller = new AbortController();
   let timedOut = false;
 

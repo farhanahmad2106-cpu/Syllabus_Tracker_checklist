@@ -39,7 +39,7 @@ def test_validate_file_metadata():
 
     # Oversized file
     with pytest.raises(FileValidationError, match="maximum allowed size"):
-        validate_file_metadata("huge.pdf", 50 * 1024 * 1024)
+        validate_file_metadata("huge.pdf", settings.MAX_UPLOAD_SIZE_BYTES + 1024)
 
 
 def test_parse_txt_content():
