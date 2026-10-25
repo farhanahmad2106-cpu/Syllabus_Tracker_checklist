@@ -55,15 +55,18 @@
 ### Phase 5: React / TypeScript Frontend [COMPLETED]
 - [x] Canonical TypeScript interfaces in `frontend/src/types/syllabus.ts` (with `Year` alias, `evidence_status`, `source_document_id`, and `AppConfigResponse`).
 - [x] Pure progress helper library in `frontend/src/lib/progress.ts`.
+- [x] Safe error normalization and parsing utilities in `frontend/src/lib/errors.ts`.
 - [x] Typed HTTP client in `frontend/src/lib/api.ts` (including `fetchConfig`, `fetchHealth`, `fetchSyllabiList`, etc.).
 - [x] Custom hook `frontend/src/hooks/useSyllabus.ts` managing syllabus state, mutations, and Ollama diagnostics.
 - [x] Components:
-  - `FileUpload.tsx`: Drag-and-drop syllabus upload with size and format checks (PDF, DOCX, DOC, TXT).
+  - `FileUpload.tsx`: Drag-and-drop syllabus upload with size and format checks (PDF, DOCX, DOC, TXT; 25 MiB max).
   - `SyllabusTree.tsx`: Recursive 5-level tree with Radix UI tri-state checkboxes and accessible disclosures.
-  - `ProgressBar.tsx`: Global and per-node progress indicators.
+  - `ProgressBar.tsx`: Global and per-node progress indicators (`X / Y completed (Z%)`).
   - `SourceEvidence.tsx`: Grounding modal displaying verbatim document evidence, page, location, and verified/needs-review status badge.
+  - `ConfirmDelete.tsx`: Accessible modal dialog for syllabus deletion with keyboard focus management and escape cancellation.
+  - `EmptyState.tsx`: Reusable accessible empty state component with action button.
   - `ErrorMessage.tsx`: Dismissible error notifications.
-  - `App.tsx`: Header, Ollama badge, sidebar, title rename, and delete dialog.
+  - `App.tsx`: Main layout, Ollama badge, sidebar, title rename, and delete dialog.
 - [x] Clean TypeScript typecheck (`npm run typecheck`) and production build verified (`npm run build`).
 
 ### Current Repository Status

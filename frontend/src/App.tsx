@@ -7,8 +7,9 @@ import {
   Plus,
   RefreshCw,
   Trash2,
-  UploadCloud,
 } from 'lucide-react';
+import { ConfirmDelete } from './components/ConfirmDelete';
+import { EmptyState } from './components/EmptyState';
 import { ErrorMessage } from './components/ErrorMessage';
 import { FileUpload } from './components/FileUpload';
 import { ProgressBar } from './components/ProgressBar';
@@ -283,23 +284,12 @@ export const App: React.FC = () => {
               />
             </div>
           ) : (
-            /* Empty State */
-            <div className="max-w-md mx-auto my-12 text-center p-8 border border-gray-800 rounded-3xl bg-gray-900/40 space-y-4">
-              <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto">
-                <UploadCloud className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-200">No Syllabus Selected</h3>
-              <p className="text-xs text-gray-400 leading-relaxed">
-                Import an academic curriculum document (PDF, DOCX, or TXT) to automatically extract
-                the 5-level hierarchy and start tracking your study checklist.
-              </p>
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="px-4 py-2 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-gray-950 rounded-xl shadow-lg transition-all cursor-pointer"
-              >
-                Upload Syllabus Now
-              </button>
-            </div>
+            <EmptyState
+              title="No Syllabus Selected"
+              description="Import an academic curriculum document (PDF, DOCX, DOC, or TXT) to automatically extract the 4-tier hierarchy and start tracking your study checklist."
+              onAction={() => setShowUploadModal(true)}
+              actionLabel="Import Syllabus Now"
+            />
           )}
         </main>
       </div>
@@ -341,35 +331,20 @@ export const App: React.FC = () => {
       )}
 
       {/* Delete Confirmation Modal */}
-      {deletingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
-            <h3 className="text-base font-bold text-gray-100">Delete Syllabus?</h3>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              Are you sure you want to delete this syllabus? All associated progress and checklist
-              history will be permanently removed.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setDeletingId(null)}
-                className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 rounded-lg hover:bg-gray-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  const id = deletingId;
-                  setDeletingId(null);
-                  await handleDelete(id);
-                }}
-                className="px-4 py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
-              >
-                Confirm Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDelete
+        isOpen={Boolean(deletingId)}
+        syllabusTitle={
+          syllabi.find((s) => s.id === deletingId)?.title || 'Selected Syllabus'
+        }
+        onCancel={() => setDeletingId(null)}
+        onConfirm={async () => {
+          if (deletingId) {
+            const id = deletingId;
+            setDeletingId(null);
+            await handleDelete(id);
+          }
+        }}
+      />
     </div>
   );
 };
