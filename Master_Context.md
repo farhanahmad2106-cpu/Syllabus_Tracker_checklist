@@ -94,7 +94,7 @@
   - Added user "Cancel Upload" and "Retry" controls in `FileUpload.tsx`.
   - Guaranteed `isUploading` resets in `finally` blocks and added accessible `role="alert"` announcements.
 - [x] Verification & Test Suite:
-  - Backend tests: 45 passed out of 45 in 2.29s (`pytest backend/tests`).
+  - Backend tests: 47 passed out of 47 in 1.90s (`pytest backend/tests`).
   - Frontend tests: 9 passed out of 9 in 3.66s (`npm run test`).
   - TypeScript typecheck passed with 0 errors (`npm run typecheck`).
   - Production build completed successfully in 2.14s (`npm run build`).

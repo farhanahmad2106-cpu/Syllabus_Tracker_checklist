@@ -67,7 +67,29 @@ def test_parse_txt_decoding_fallback():
 
 
 def test_parse_pdf_with_pypdf():
-    """Verify PDF creation and parsing with 1-based page numbers."""
+    """Verify PDF creation and parsing with 1-based page numbers from actual extractable text."""
+    pdf_bytes = (
+        b"%PDF-1.4\n"
+        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n"
+        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n"
+        b"4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n"
+        b"5 0 obj<</Length 44>>stream\n"
+        b"BT /F1 12 Tf 100 700 Td (Syllabus: Computer Science 101) Tj ET\n"
+        b"endstream\nendobj\n"
+        b"xref\n0 6\n0000000000 65535 f \n"
+        b"0000000010 00000 n \n0000000053 00000 n \n0000000102 00000 n \n0000000213 00000 n \n0000000281 00000 n \n"
+        b"trailer<</Size 6/Root 1 0 R>>\nstartxref\n376\n%%EOF\n"
+    )
+    parsed = parse_uploaded_file(pdf_bytes, "cs101.pdf")
+    assert "Syllabus: Computer Science 101" in parsed.text
+    assert parsed.has_reliable_pages is True
+    assert len(parsed.pages) == 1
+    assert parsed.pages[0][0] == 1
+
+
+def test_parse_pdf_blank_raises_error():
+    """Verify blank PDF without extractable text raises DocumentParserError."""
     writer = PdfWriter()
     writer.add_blank_page(width=100, height=100)
     writer.add_blank_page(width=100, height=100)
@@ -76,7 +98,6 @@ def test_parse_pdf_with_pypdf():
     writer.write(pdf_bytes_io)
     pdf_bytes = pdf_bytes_io.getvalue()
 
-    # Upload pipeline should raise DocumentParserError when no text is found
     with pytest.raises(DocumentParserError, match="no extractable text"):
         parse_uploaded_file(pdf_bytes, "blank.pdf")
 
@@ -152,16 +173,24 @@ def test_scanned_pdf_triggers_docling_when_enabled(monkeypatch):
 
 
 def test_scanned_pdf_handles_winerror_1450_safely(monkeypatch):
-    """Verify OSError [WinError 1450] in Docling fallback is caught without unhandled crash."""
+    """Verify parse_with_docling_if_available catches WinError 1450 and returns None safely."""
+    import sys
+    import types
     monkeypatch.setattr(settings, "ENABLE_DOCLING_FALLBACK", True)
+
+    class MockFailingConverter:
+        def convert(self, *args, **kwargs):
+            raise OSError(1450, "Insufficient system resources exist to complete the requested service")
+
+    mock_mod = types.ModuleType("docling.document_converter")
+    mock_mod.DocumentConverter = MockFailingConverter
+    monkeypatch.setitem(sys.modules, "docling.document_converter", mock_mod)
+
+    result = parse_with_docling_if_available("dummy.pdf", "scanned.pdf")
+    assert result is None
+
+    # And verify parse_uploaded_file raises DocumentParserError when docling returns None
     monkeypatch.setattr("backend.app.parser.parse_pdf_pypdf", lambda *args, **kwargs: None)
-
-    # Mock Docling raising WinError 1450
-    def mock_docling_fail(*args, **kwargs):
-        raise OSError(1450, "Insufficient system resources exist to complete the requested service")
-
-    monkeypatch.setattr("backend.app.parser.parse_with_docling_if_available", lambda *a, **k: None)
-
     writer = PdfWriter()
     writer.add_blank_page(width=100, height=100)
     buf = io.BytesIO()
@@ -169,6 +198,16 @@ def test_scanned_pdf_handles_winerror_1450_safely(monkeypatch):
 
     with pytest.raises(DocumentParserError, match="no extractable text and appears to be a scanned image"):
         parse_uploaded_file(buf.getvalue(), "scanned.pdf")
+
+
+def test_encrypted_pdf_raises_validation_error(monkeypatch):
+    """Verify encrypted or password-protected PDF raises FileValidationError."""
+    mock_reader = MagicMock()
+    mock_reader.is_encrypted = True
+    monkeypatch.setattr("backend.app.parser.PdfReader", lambda *a, **k: mock_reader)
+
+    with pytest.raises(FileValidationError, match="encrypted or password-protected"):
+        parse_uploaded_file(b"%PDF-1.4 dummy", "locked.pdf")
 
 
 def test_pdf_page_limit_enforced(monkeypatch):
