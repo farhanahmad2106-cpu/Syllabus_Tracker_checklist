@@ -1,6 +1,6 @@
-"""Document parsing and layout extraction supporting PDF, DOCX, and TXT."""
-
 import os
+import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +13,7 @@ from backend.app.config import settings
 from backend.app.exceptions import DocumentParserError, FileValidationError
 
 # Allowed extensions
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".doc"}
 
 
 @dataclass
@@ -156,6 +156,52 @@ def parse_with_docling_if_available(file_path: str, filename: str) -> Optional[P
     return None
 
 
+def find_libreoffice_executable() -> Optional[str]:
+    """Find soffice or libreoffice executable in system PATH or standard locations."""
+    for cmd in ["soffice", "libreoffice"]:
+        path = shutil.which(cmd)
+        if path:
+            return path
+    win_paths = [
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+    ]
+    for p in win_paths:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def convert_doc_to_docx(doc_path: str, output_dir: str) -> str:
+    """Convert legacy .doc file to .docx using headless LibreOffice."""
+    soffice_path = find_libreoffice_executable()
+    if not soffice_path:
+        raise DocumentParserError(
+            "LibreOffice / soffice is not installed or not found in PATH. "
+            "Converting legacy .doc files requires LibreOffice. "
+            "Please convert the file to .docx or install LibreOffice."
+        )
+    try:
+        subprocess.run(
+            [soffice_path, "--headless", "--convert-to", "docx", "--outdir", output_dir, doc_path],
+            check=True,
+            timeout=30,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        base_name = Path(doc_path).stem
+        converted_docx = os.path.join(output_dir, f"{base_name}.docx")
+        if not os.path.exists(converted_docx):
+            raise DocumentParserError(f"LibreOffice conversion failed: {converted_docx} was not created.")
+        return converted_docx
+    except subprocess.TimeoutExpired:
+        raise DocumentParserError("LibreOffice conversion timed out after 30 seconds.")
+    except Exception as e:
+        if isinstance(e, DocumentParserError):
+            raise
+        raise DocumentParserError(f"Failed to convert legacy .doc file: {str(e)}") from e
+
+
 def parse_uploaded_file(
     content_bytes: bytes,
     filename: str,
@@ -170,37 +216,39 @@ def parse_uploaded_file(
     if ext == ".txt":
         return parse_txt_content(content_bytes, filename)
 
-    # Secure temporary file for PDF and DOCX
-    temp_dir = tempfile.gettempdir()
-    temp_file = tempfile.NamedTemporaryFile(
-        dir=temp_dir,
-        suffix=ext,
-        delete=False,
-    )
-    temp_path = temp_file.name
+    temp_dir = tempfile.mkdtemp(prefix="syllabus_upload_")
+    temp_path = os.path.join(temp_dir, f"staged{ext}")
+    converted_docx_path: Optional[str] = None
 
     try:
-        temp_file.write(content_bytes)
-        temp_file.flush()
-        temp_file.close()
+        with open(temp_path, "wb") as f:
+            f.write(content_bytes)
+
+        # Handle legacy .doc conversion
+        effective_path = temp_path
+        effective_ext = ext
+        if ext == ".doc":
+            converted_docx_path = convert_doc_to_docx(temp_path, temp_dir)
+            effective_path = converted_docx_path
+            effective_ext = ".docx"
 
         # Try Docling first
-        docling_result = parse_with_docling_if_available(temp_path, filename)
+        docling_result = parse_with_docling_if_available(effective_path, filename)
         if docling_result and docling_result.text.strip():
             return docling_result
 
         # Robust built-in parsers
-        if ext == ".pdf":
-            return parse_pdf_pypdf(temp_path, filename)
-        elif ext == ".docx":
-            return parse_docx_python_docx(temp_path, filename)
+        if effective_ext == ".pdf":
+            return parse_pdf_pypdf(effective_path, filename)
+        elif effective_ext == ".docx":
+            return parse_docx_python_docx(effective_path, filename)
         else:
             raise FileValidationError(f"Unhandled file extension: {ext}")
 
     finally:
-        # Ensure temporary file is always deleted
-        if os.path.exists(temp_path):
+        # Guarantee cleanup of all temporary staged files and directory
+        if os.path.exists(temp_dir):
             try:
-                os.remove(temp_path)
-            except OSError:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
                 pass

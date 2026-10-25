@@ -7,7 +7,7 @@ interface FileUploadProps {
 }
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MiB
-const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.txt'];
+const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.doc'];
 
 export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -19,7 +19,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
 
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!ACCEPTED_EXTENSIONS.includes(ext)) {
-      setLocalError(`Unsupported format '${ext}'. Please upload a PDF, DOCX, or TXT syllabus.`);
+      setLocalError(`Unsupported format '${ext}'. Please upload a PDF, DOCX, DOC, or TXT syllabus.`);
       return;
     }
 
@@ -75,7 +75,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.txt"
+          accept=".pdf,.docx,.txt,.doc"
           onChange={handleFileChange}
           disabled={isUploading}
           className="hidden"
@@ -107,7 +107,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
                 or drag and drop your syllabus
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Supports PDF, DOCX, and TXT (Max 20 MiB)
+                Supports PDF, DOCX, DOC, and TXT (Max 20 MiB)
               </p>
             </div>
           </div>

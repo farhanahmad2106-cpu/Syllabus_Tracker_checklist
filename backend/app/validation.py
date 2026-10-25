@@ -112,6 +112,7 @@ def canonicalize_extracted_curriculum(
                         evidence = sub_title
 
                     # Check source grounding
+                    evidence_status = "verified"
                     if source_document_text:
                         is_grounded = verify_grounding(evidence, source_document_text)
                         if not is_grounded:
@@ -119,6 +120,7 @@ def canonicalize_extracted_curriculum(
                             if verify_grounding(sub_title, source_document_text):
                                 evidence = sub_title
                             else:
+                                evidence_status = "needs_review"
                                 warnings.append(
                                     f"Evidence for subtopic '{sub_title}' was not found verbatim in source document."
                                 )
@@ -133,6 +135,8 @@ def canonicalize_extracted_curriculum(
                         source_text=evidence,
                         source_page=page,
                         source_location=ext_sub.source_location,
+                        source_document_id=syllabus_id,
+                        evidence_status=evidence_status,
                         order_index=sub_idx,
                     )
                     canonical_subtopics.append(subtopic)

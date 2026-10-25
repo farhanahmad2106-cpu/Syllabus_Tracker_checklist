@@ -1,7 +1,7 @@
 """Canonical Pydantic v2 schemas and data contracts."""
 
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -13,7 +13,9 @@ class Subtopic(BaseModel):
     title: str = Field(..., min_length=1, description="Non-empty title of subtopic")
     source_text: str = Field(..., min_length=1, description="Verbatim source text snippet")
     source_page: Optional[int] = Field(default=None, description="1-based page number if available")
-    source_location: Optional[str] = Field(default=None, description="Section, heading, or paragraph location")
+    source_location: Optional[Union[str, Dict]] = Field(default=None, description="Section, heading, or paragraph location")
+    source_document_id: Optional[str] = Field(default=None, description="Reference to ingestion document")
+    evidence_status: Literal["verified", "needs_review"] = Field(default="verified", description="Grounding verification status")
     order_index: int = Field(default=0, ge=0)
 
     @field_validator("id", "title", "source_text")

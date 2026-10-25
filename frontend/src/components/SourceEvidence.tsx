@@ -68,10 +68,27 @@ export const SourceEvidence: React.FC<SourceEvidenceProps> = ({ subtopic }) => {
                       : 'Page: Not explicitly numbered in source'}
                   </span>
                 </div>
+                {subtopic.evidence_status && (
+                  <div
+                    className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 border ${
+                      subtopic.evidence_status === 'verified'
+                        ? 'bg-emerald-950/60 border-emerald-700/60 text-emerald-300'
+                        : 'bg-amber-950/60 border-amber-700/60 text-amber-300'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                    <span className="capitalize">{subtopic.evidence_status.replace('_', ' ')}</span>
+                  </div>
+                )}
                 {subtopic.source_location && (
                   <div className="px-2.5 py-1 bg-gray-800/80 border border-gray-700/80 rounded-lg flex items-center gap-1.5">
                     <MapPin className="w-3 h-3 text-gray-400" />
-                    <span>Location: {subtopic.source_location}</span>
+                    <span>
+                      Location:{' '}
+                      {typeof subtopic.source_location === 'object'
+                        ? JSON.stringify(subtopic.source_location)
+                        : subtopic.source_location}
+                    </span>
                   </div>
                 )}
               </div>
