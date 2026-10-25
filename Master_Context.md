@@ -35,7 +35,7 @@
 - [x] Transactional repository methods for saving syllabi, atomic leaf toggles, bulk branch updates, renames, and cascade deletions.
 
 ### Phase 3: Parsing & Structured Extraction [COMPLETED]
-- [x] Document parser in `backend/app/parser.py` supporting PDF, DOCX, TXT, and legacy DOC with upload size validation (20 MiB max) and secure isolated temp directory cleanup (`mkdtemp` + `rmtree`).
+- [x] Document parser in `backend/app/parser.py` supporting PDF, DOCX, TXT, and legacy DOC with upload size validation (25 MiB max) and secure isolated temp directory cleanup (`mkdtemp` + `rmtree`).
 - [x] Legacy `.doc` support using headless LibreOffice (`soffice`) conversion with execution timeouts and graceful diagnostics when LibreOffice is not installed.
 - [x] Docling parser integration with robust PyPDF and python-docx offline fallbacks.
 - [x] Structured LLM curriculum extractor in `backend/app/extractor.py` using Instructor and local Ollama.

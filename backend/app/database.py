@@ -1,6 +1,7 @@
 """SQLite database engine, connection configuration, and session management."""
 
 import json
+import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Generator, List, Optional, Set, Tuple
@@ -24,6 +25,12 @@ def create_db_engine(db_url: Optional[str] = None) -> Engine:
     """Create a configured SQLite engine with WAL mode and foreign key enforcement."""
     url = db_url or settings.DATABASE_URL
     is_sqlite = url.startswith("sqlite")
+
+    if is_sqlite and ":memory:" not in url:
+        clean_path = url.replace("sqlite:///", "")
+        db_dir = os.path.dirname(clean_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
 
     engine = create_engine(
         url,

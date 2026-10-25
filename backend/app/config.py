@@ -13,13 +13,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    DATABASE_URL: str = "sqlite:///./syllabus_tracker.db"
+    DATABASE_URL: str = "sqlite:///./data/syllabus_tracker.db"
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434/v1"
     OLLAMA_MODEL: str = "qwen2.5:7b"
     OLLAMA_FALLBACK_MODEL: str = "llama3.1:8b"
     LLM_TIMEOUT_SECONDS: int = 120
     EXTRACTION_RETRY_BUDGET: int = 2
-    MAX_UPLOAD_SIZE_BYTES: int = 20 * 1024 * 1024  # 20 MiB
+    MAX_UPLOAD_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MiB
     CORS_ORIGINS: List[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",

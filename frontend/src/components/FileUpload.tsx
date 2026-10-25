@@ -6,7 +6,7 @@ interface FileUploadProps {
   isUploading: boolean;
 }
 
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MiB
+const MAX_SIZE_BYTES = 25 * 1024 * 1024; // 25 MiB
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.doc'];
 
 export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading }) => {
@@ -24,7 +24,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
     }
 
     if (file.size > MAX_SIZE_BYTES) {
-      setLocalError(`File size exceeds 20 MiB limit (${(file.size / (1024 * 1024)).toFixed(1)} MiB).`);
+      setLocalError(`File size exceeds 25 MiB limit (${(file.size / (1024 * 1024)).toFixed(1)} MiB).`);
       return;
     }
 
@@ -107,7 +107,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
                 or drag and drop your syllabus
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Supports PDF, DOCX, DOC, and TXT (Max 20 MiB)
+                Supports PDF, DOCX, DOC, and TXT (Max 25 MiB)
               </p>
             </div>
           </div>
