@@ -57,7 +57,7 @@ describe('SyllabusTree', () => {
     const handleToggleLeaf = vi.fn();
     const handleToggleBranch = vi.fn();
 
-    render(
+    const { container } = render(
       <SyllabusTree
         syllabus={mockSyllabus}
         completedLeafIds={['sub_1']}
@@ -73,14 +73,15 @@ describe('SyllabusTree', () => {
     expect(screen.getByText('Subtopic 1')).toBeInTheDocument();
     expect(screen.getByText('Subtopic 2')).toBeInTheDocument();
 
-    const checkboxes = screen.getAllByRole('checkbox');
+    const leafInputs = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    expect(leafInputs.length).toBe(2);
     // sub_1 is checked
-    expect(checkboxes[1]).toBeChecked();
+    expect(leafInputs[0]).toBeChecked();
     // sub_2 is unchecked
-    expect(checkboxes[2]).not.toBeChecked();
+    expect(leafInputs[1]).not.toBeChecked();
 
     // Toggle sub_2
-    fireEvent.click(checkboxes[2]);
+    fireEvent.click(leafInputs[1]);
     expect(handleToggleLeaf).toHaveBeenCalledWith('sub_2', true);
   });
 });

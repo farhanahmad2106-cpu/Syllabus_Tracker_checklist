@@ -69,5 +69,35 @@
   - `App.tsx`: Main layout, Ollama badge, sidebar, title rename, and delete dialog.
 - [x] Clean TypeScript typecheck (`npm run typecheck`) and production build verified (`npm run build`).
 
+### Phase 6: Document Upload Freeze & Windows WinError 1450 Permanent Fix [COMPLETED]
+- [x] Diagnosed Root Cause:
+  - Docling parser was previously placed first in `parse_uploaded_file`, forcing PyTorch and computer-vision model initialization (`torch/utils/deterministic.py`) on every PDF upload. On Windows 11 with Uvicorn watching the workspace (including the 5GB `backend/venv`), Windows kernel paged pool and file handles became exhausted (`[WinError 1450] Insufficient system resources exist to complete the requested service`).
+  - The upload endpoint `POST /api/upload` was calling the heavy synchronous parsing pipeline directly inside an `async def` route without `asyncio.to_thread` or an explicit timeout deadline (`asyncio.wait_for`), blocking the FastAPI event loop indefinitely when PyTorch hung.
+  - The frontend `uploadSyllabusFile` fetch call lacked an `AbortController` and timeout deadline, causing the UI to freeze indefinitely on "Extracting Syllabus Curriculum...".
+- [x] Layered Document-Parsing Pipeline (`backend/app/parser.py`):
+  - Inverted parsing order: Digital text PDFs now default to fast-path `pypdf` (~20ms extraction, 0MB model overhead, zero PyTorch initialization).
+  - Docling is now an opt-in fallback (`ENABLE_DOCLING_FALLBACK = False` by default), only attempted if `pypdf` extracts 0 characters (indicating a scanned image).
+  - Explicitly handles `OSError` (WinError 1450) and raises a structured, human-actionable error instead of crashing the server process.
+  - Replaced hardcoded temporary file `staged.pdf` with uniquely isolated temporary filenames (`upload_{uuid}{ext}`) to prevent collisions during concurrent uploads.
+  - Enforced resource limits in `backend/app/config.py`: `MAX_PDF_PAGES = 150`, `MAX_EXTRACTED_TEXT_CHARS = 500_000`, `PARSER_TIMEOUT_SECONDS = 45`.
+- [x] Failure-Safe Async Upload Endpoint (`backend/app/main.py`):
+  - Offloaded blocking ingestion to worker threads using `asyncio.to_thread` with bounded concurrency semaphore (`upload_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_PARSING_JOBS)`).
+  - Enforced request processing timeout using `asyncio.wait_for`.
+  - Added clean terminal error responses with HTTP 413 (Payload Too Large), HTTP 415 (Unsupported Media Type), HTTP 504 (Processing Timeout), and HTTP 503 (System Resource Exhausted / WinError 1450).
+  - Fixed pre-existing indentation bug in `get_node_descendant_leaf_ids` in `backend/app/progress.py`.
+- [x] Restructured Windows 11 Backend Launcher (`start-backend.ps1`):
+  - In Development mode, restricted Uvicorn reload monitoring strictly to `--reload-dir backend/app` so that `backend/venv`, node_modules, and temp files are never scanned.
+  - Added Stable execution mode (`-Mode Stable`) without file watching.
+  - Implemented safe, non-destructive port conflict checks via PowerShell `Get-NetTCPConnection` without killing unrelated `python.exe` processes.
+- [x] Frontend Upload Recovery & Cancellation (`frontend/src/lib/api.ts`, `FileUpload.tsx`, `useSyllabus.ts`):
+  - Added 90-second client-side timeout and `AbortController` in `uploadSyllabusFile`.
+  - Added user "Cancel Upload" and "Retry" controls in `FileUpload.tsx`.
+  - Guaranteed `isUploading` resets in `finally` blocks and added accessible `role="alert"` announcements.
+- [x] Verification & Test Suite:
+  - Backend tests: 45 passed out of 45 in 2.29s (`pytest backend/tests`).
+  - Frontend tests: 9 passed out of 9 in 3.66s (`npm run test`).
+  - TypeScript typecheck passed with 0 errors (`npm run typecheck`).
+  - Production build completed successfully in 2.14s (`npm run build`).
+
 ### Current Repository Status
 - Codebase complete, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.

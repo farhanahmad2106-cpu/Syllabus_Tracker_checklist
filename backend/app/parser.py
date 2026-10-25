@@ -1,7 +1,16 @@
+"""Document parser module providing lightweight, layered extraction.
+
+Prioritizes fast-path extraction for digital text-based documents (pypdf, python-docx)
+to completely eliminate unnecessary PyTorch/Docling initialization and prevent Windows
+WinError 1450 resource exhaustion.
+"""
+
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -11,6 +20,8 @@ from docx import Document as DocxDocument
 
 from backend.app.config import settings
 from backend.app.exceptions import DocumentParserError, FileValidationError
+
+logger = logging.getLogger(__name__)
 
 # Allowed extensions
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".doc"}
@@ -60,6 +71,15 @@ def parse_txt_content(content_bytes: bytes, filename: str) -> ParsedDocument:
     if not text.strip():
         raise DocumentParserError(f"Plain text file '{filename}' contains no readable text.")
 
+    if len(text) > settings.MAX_EXTRACTED_TEXT_CHARS:
+        logger.warning(
+            "document.text_truncated filename=%s length=%d limit=%d",
+            filename,
+            len(text),
+            settings.MAX_EXTRACTED_TEXT_CHARS,
+        )
+        text = text[: settings.MAX_EXTRACTED_TEXT_CHARS]
+
     # TXT files have no native page breaks
     return ParsedDocument(
         text=text,
@@ -69,72 +89,125 @@ def parse_txt_content(content_bytes: bytes, filename: str) -> ParsedDocument:
     )
 
 
-def parse_pdf_pypdf(file_path: str, filename: str) -> ParsedDocument:
-    """Fast, reliable, offline PDF parsing using pypdf preserving 1-based page numbers."""
+def parse_pdf_pypdf(file_path: str, filename: str) -> Optional[ParsedDocument]:
+    """
+    Fast, lightweight, offline PDF parsing using pypdf.
+    
+    Extracts text per page preserving 1-based page numbers.
+    Never initializes PyTorch, layout models, or OCR.
+    Returns ParsedDocument if extractable text is present, or None if the document
+    is scanned or contains no machine-readable text.
+    """
     try:
         reader = PdfReader(file_path)
-        pages: List[Tuple[Optional[int], str]] = []
-        full_text_chunks: List[str] = []
-
-        for idx, page in enumerate(reader.pages):
-            page_text = page.extract_text() or ""
-            page_num = idx + 1
-            pages.append((page_num, page_text))
-            if page_text.strip():
-                full_text_chunks.append(f"[Page {page_num}]\n{page_text}")
-
-        full_text = "\n\n".join(full_text_chunks)
-        if not full_text.strip():
-            raise DocumentParserError(f"PDF '{filename}' contains no extractable text.")
-
-        return ParsedDocument(
-            text=full_text,
-            pages=pages,
-            has_reliable_pages=True,
-            source_filename=filename,
-        )
     except Exception as e:
-        if isinstance(e, DocumentParserError):
-            raise
-        raise DocumentParserError(f"Failed to parse PDF '{filename}': {str(e)}") from e
+        raise DocumentParserError(f"Malformed or unreadable PDF '{filename}': {str(e)}") from e
+
+    if reader.is_encrypted:
+        raise FileValidationError(f"PDF '{filename}' is encrypted or password-protected and cannot be read.")
+
+    total_pages = len(reader.pages)
+    if total_pages == 0:
+        raise DocumentParserError(f"PDF '{filename}' contains zero pages.")
+
+    if total_pages > settings.MAX_PDF_PAGES:
+        raise FileValidationError(
+            f"PDF exceeds maximum page limit of {settings.MAX_PDF_PAGES} pages (found {total_pages})."
+        )
+
+    pages: List[Tuple[Optional[int], str]] = []
+    full_text_chunks: List[str] = []
+    total_chars = 0
+
+    for idx, page in enumerate(reader.pages):
+        try:
+            page_text = page.extract_text() or ""
+        except Exception as page_err:
+            logger.warning("pypdf.page_extract_error page=%d err=%s", idx + 1, page_err)
+            page_text = ""
+
+        page_num = idx + 1
+        pages.append((page_num, page_text))
+        if page_text.strip():
+            full_text_chunks.append(f"[Page {page_num}]\n{page_text}")
+            total_chars += len(page_text.strip())
+
+    full_text = "\n\n".join(full_text_chunks)
+
+    # Determine if text is meaningful (even a short valid syllabus with just a few topics)
+    if not full_text.strip() or total_chars == 0:
+        logger.info(
+            "document.fast_path.no_text filename=%s total_pages=%d chars=0",
+            filename,
+            total_pages,
+        )
+        return None
+
+    if len(full_text) > settings.MAX_EXTRACTED_TEXT_CHARS:
+        logger.warning(
+            "document.pdf_truncated filename=%s len=%d limit=%d",
+            filename,
+            len(full_text),
+            settings.MAX_EXTRACTED_TEXT_CHARS,
+        )
+        full_text = full_text[: settings.MAX_EXTRACTED_TEXT_CHARS]
+
+    return ParsedDocument(
+        text=full_text,
+        pages=pages,
+        has_reliable_pages=True,
+        source_filename=filename,
+    )
 
 
 def parse_docx_python_docx(file_path: str, filename: str) -> ParsedDocument:
     """Fast, offline DOCX parsing using python-docx extracting paragraphs and tables."""
     try:
         doc = DocxDocument(file_path)
-        chunks: List[str] = []
-
-        for para in doc.paragraphs:
-            txt = para.text.strip()
-            if txt:
-                chunks.append(txt)
-
-        for table in doc.tables:
-            for row in table.rows:
-                row_cells = [c.text.strip() for c in row.cells if c.text.strip()]
-                if row_cells:
-                    chunks.append(" | ".join(row_cells))
-
-        full_text = "\n\n".join(chunks)
-        if not full_text.strip():
-            raise DocumentParserError(f"DOCX '{filename}' contains no extractable text.")
-
-        # DOCX doesn't have reliable fixed physical pages without layout engine
-        return ParsedDocument(
-            text=full_text,
-            pages=[(None, full_text)],
-            has_reliable_pages=False,
-            source_filename=filename,
-        )
     except Exception as e:
-        if isinstance(e, DocumentParserError):
-            raise
-        raise DocumentParserError(f"Failed to parse DOCX '{filename}': {str(e)}") from e
+        raise DocumentParserError(f"Malformed or unreadable DOCX '{filename}': {str(e)}") from e
+
+    chunks: List[str] = []
+
+    for para in doc.paragraphs:
+        txt = para.text.strip()
+        if txt:
+            chunks.append(txt)
+
+    for table in doc.tables:
+        for row in table.rows:
+            row_cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if row_cells:
+                chunks.append(" | ".join(row_cells))
+
+    full_text = "\n\n".join(chunks)
+    if not full_text.strip():
+        raise DocumentParserError(f"DOCX '{filename}' contains no extractable text.")
+
+    if len(full_text) > settings.MAX_EXTRACTED_TEXT_CHARS:
+        full_text = full_text[: settings.MAX_EXTRACTED_TEXT_CHARS]
+
+    # DOCX doesn't have reliable fixed physical pages without layout engine
+    return ParsedDocument(
+        text=full_text,
+        pages=[(None, full_text)],
+        has_reliable_pages=False,
+        source_filename=filename,
+    )
 
 
 def parse_with_docling_if_available(file_path: str, filename: str) -> Optional[ParsedDocument]:
-    """Attempt parsing using Docling DocumentConverter if available without network models."""
+    """
+    Attempt secondary parsing using Docling only when explicitly enabled.
+    
+    Guarded against Windows WinError 1450 (Insufficient system resources) and PyTorch
+    allocation errors.
+    """
+    if not settings.ENABLE_DOCLING_FALLBACK:
+        logger.info("document.docling_skipped reason=disabled_in_settings filename=%s", filename)
+        return None
+
+    logger.info("document.docling_initializing filename=%s", filename)
     try:
         from docling.document_converter import DocumentConverter
 
@@ -150,9 +223,24 @@ def parse_with_docling_if_available(file_path: str, filename: str) -> Optional[P
                     has_reliable_pages=is_pdf,
                     source_filename=filename,
                 )
-    except Exception:
-        # Fall back gracefully to native parser
-        pass
+    except OSError as os_err:
+        # Handles Windows [WinError 1450] Insufficient system resources
+        logger.error(
+            "document.docling_os_error filename=%s error=%s",
+            filename,
+            str(os_err),
+            exc_info=True,
+        )
+        return None
+    except Exception as e:
+        logger.warning(
+            "document.docling_failed filename=%s error=%s",
+            filename,
+            str(e),
+            exc_info=True,
+        )
+        return None
+
     return None
 
 
@@ -207,48 +295,89 @@ def parse_uploaded_file(
     filename: str,
 ) -> ParsedDocument:
     """
-    Main parser entrypoint. Validates file, creates a secure temporary file,
-    extracts structured text with page boundaries, and safely cleans up temporary storage.
+    Main document-parser entrypoint.
+    
+    1. Validates file metadata and size.
+    2. Uses fast in-memory decoding for TXT.
+    3. Creates uniquely named, isolated temporary files for binary formats.
+    4. Fast-path: extracts digital PDFs via pypdf (zero PyTorch/Docling overhead).
+    5. Fallback: only if PDF has zero extractable text and Docling is enabled, attempts OCR.
+    6. Guarantees deterministic temporary directory cleanup.
     """
+    logger.info("upload.accepted filename=%s size_bytes=%d", filename, len(content_bytes))
     ext = validate_file_metadata(filename, len(content_bytes))
 
-    # Fast path for plain text
+    # Fast path for plain text: no disk I/O needed
     if ext == ".txt":
-        return parse_txt_content(content_bytes, filename)
+        logger.info("document.fast_path.started format=txt filename=%s", filename)
+        doc = parse_txt_content(content_bytes, filename)
+        logger.info("document.fast_path.completed format=txt filename=%s text_len=%d", filename, len(doc.text))
+        return doc
 
-    temp_dir = tempfile.mkdtemp(prefix="syllabus_upload_")
-    temp_path = os.path.join(temp_dir, f"staged{ext}")
-    converted_docx_path: Optional[str] = None
+    # Unique temporary folder and file to avoid collision across concurrent uploads
+    unique_id = uuid.uuid4().hex[:10]
+    temp_dir = tempfile.mkdtemp(prefix=f"syllabus_{unique_id}_")
+    temp_file_path = os.path.join(temp_dir, f"doc_{unique_id}{ext}")
 
     try:
-        with open(temp_path, "wb") as f:
+        with open(temp_file_path, "wb") as f:
             f.write(content_bytes)
 
-        # Handle legacy .doc conversion
-        effective_path = temp_path
+        effective_path = temp_file_path
         effective_ext = ext
+
+        # Legacy .doc conversion
         if ext == ".doc":
-            converted_docx_path = convert_doc_to_docx(temp_path, temp_dir)
-            effective_path = converted_docx_path
+            effective_path = convert_doc_to_docx(temp_file_path, temp_dir)
             effective_ext = ".docx"
 
-        # Try Docling first
-        docling_result = parse_with_docling_if_available(effective_path, filename)
-        if docling_result and docling_result.text.strip():
-            return docling_result
-
-        # Robust built-in parsers
+        # Fast path for digital PDF
         if effective_ext == ".pdf":
-            return parse_pdf_pypdf(effective_path, filename)
+            logger.info("document.fast_path.started format=pdf filename=%s", filename)
+            pdf_doc = parse_pdf_pypdf(effective_path, filename)
+
+            if pdf_doc is not None:
+                logger.info(
+                    "document.fast_path.completed format=pdf filename=%s pages=%d text_len=%d",
+                    filename,
+                    len(pdf_doc.pages),
+                    len(pdf_doc.text),
+                )
+                return pdf_doc
+
+            # pypdf extracted no text: document appears to be scanned/image-only
+            logger.warning(
+                "document.fast_path.empty_scanned filename=%s, attempting secondary fallback",
+                filename,
+            )
+            logger.info("document.fallback.started filename=%s", filename)
+            docling_result = parse_with_docling_if_available(effective_path, filename)
+            if docling_result and docling_result.text.strip():
+                logger.info("document.fallback.completed filename=%s", filename)
+                return docling_result
+
+            # Both extraction paths exhausted
+            raise DocumentParserError(
+                f"PDF '{filename}' contains no extractable text and appears to be a scanned image. "
+                "Lightweight text extraction found 0 characters, and secondary OCR processing is disabled "
+                "or unavailable to prevent system resource exhaustion. Please upload a digital text-based PDF, "
+                "DOCX, or TXT file."
+            )
+
         elif effective_ext == ".docx":
-            return parse_docx_python_docx(effective_path, filename)
+            logger.info("document.fast_path.started format=docx filename=%s", filename)
+            docx_doc = parse_docx_python_docx(effective_path, filename)
+            logger.info("document.fast_path.completed format=docx filename=%s text_len=%d", filename, len(docx_doc.text))
+            return docx_doc
+
         else:
             raise FileValidationError(f"Unhandled file extension: {ext}")
 
     finally:
-        # Guarantee cleanup of all temporary staged files and directory
+        # Guarantee deterministic cleanup of temporary staging directory
         if os.path.exists(temp_dir):
             try:
                 shutil.rmtree(temp_dir, ignore_errors=True)
-            except Exception:
-                pass
+                logger.debug("document.cleanup.completed temp_dir=%s", temp_dir)
+            except Exception as cleanup_err:
+                logger.warning("document.cleanup.warning temp_dir=%s err=%s", temp_dir, cleanup_err)

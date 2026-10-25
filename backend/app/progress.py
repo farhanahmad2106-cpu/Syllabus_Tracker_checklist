@@ -67,7 +67,7 @@ def get_node_descendant_leaf_ids(
                 for top in sem.topics:
                     for sub in top.subtopics:
                         leaves.append(sub.id)
-            return leaves
+                return leaves
 
             # 4. Topic level
             for top in sem.topics:

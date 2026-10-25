@@ -61,11 +61,24 @@ export function useSyllabus() {
     }
   }, []);
 
+  const [activeUploadController, setActiveUploadController] = useState<AbortController | null>(null);
+
+  const cancelUpload = useCallback(() => {
+    if (activeUploadController) {
+      activeUploadController.abort('UPLOAD_CANCELLED');
+      setActiveUploadController(null);
+      setIsUploading(false);
+      setError('Upload cancelled.');
+    }
+  }, [activeUploadController]);
+
   const uploadFile = useCallback(async (file: File) => {
+    const controller = new AbortController();
+    setActiveUploadController(controller);
     setIsUploading(true);
     setError(null);
     try {
-      const result = await uploadSyllabusFile(file);
+      const result = await uploadSyllabusFile(file, { signal: controller.signal });
       setActiveSyllabus(result);
       await refreshList();
       return result;
@@ -75,6 +88,7 @@ export function useSyllabus() {
       throw err;
     } finally {
       setIsUploading(false);
+      setActiveUploadController(null);
     }
   }, [refreshList]);
 
@@ -144,6 +158,7 @@ export function useSyllabus() {
     refreshHealth,
     selectSyllabus,
     uploadFile,
+    cancelUpload,
     handleToggleLeaf,
     handleToggleBranch,
     handleRename,

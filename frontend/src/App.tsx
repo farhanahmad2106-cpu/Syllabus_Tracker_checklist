@@ -30,6 +30,7 @@ export const App: React.FC = () => {
     refreshHealth,
     selectSyllabus,
     uploadFile,
+    cancelUpload,
     handleToggleLeaf,
     handleToggleBranch,
     handleRename,
@@ -315,6 +316,7 @@ export const App: React.FC = () => {
                 setShowUploadModal(false);
               }}
               isUploading={isUploading}
+              onCancel={cancelUpload}
             />
 
             <div className="flex justify-end pt-2">

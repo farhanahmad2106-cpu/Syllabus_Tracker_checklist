@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 120
     EXTRACTION_RETRY_BUDGET: int = 2
     MAX_UPLOAD_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MiB
+    MAX_PDF_PAGES: int = 150
+    MAX_EXTRACTED_TEXT_CHARS: int = 500_000
+    PARSER_TIMEOUT_SECONDS: int = 45
+    ENABLE_DOCLING_FALLBACK: bool = False
+    MAX_CONCURRENT_PARSING_JOBS: int = 2
     CORS_ORIGINS: List[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",

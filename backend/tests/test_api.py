@@ -49,8 +49,11 @@ def test_get_unknown_syllabus_returns_404(client):
     assert "not found" in res.json()["detail"].lower()
 
 
-def test_upload_txt_syllabus_success(client):
+def test_upload_txt_syllabus_success(client, monkeypatch):
     """Verify uploading a plain text syllabus."""
+    from backend.app.extractor import extract_curriculum_rule_based
+    monkeypatch.setattr("backend.app.services.ingestion.extract_curriculum", lambda doc, **kwargs: extract_curriculum_rule_based(doc))
+
     content = (
         "Bachelor of Science in Computer Science\n"
         "Academic Year 1\n"
@@ -72,7 +75,7 @@ def test_upload_invalid_file_extension(client):
     """Verify rejecting unsupported file format."""
     files = {"file": ("script.sh", b"echo hello", "text/x-shellscript")}
     res = client.post("/api/upload", files=files)
-    assert res.status_code == 400
+    assert res.status_code == 415
     assert "Unsupported file format" in res.json()["detail"]
 
 
@@ -157,3 +160,44 @@ def test_delete_syllabus_endpoint(client, db_session, sample_syllabus):
     # Verify 404 now
     res = client.get(f"/api/syllabus/{sample_syllabus.id}")
     assert res.status_code == 404
+
+
+def test_upload_oversized_file_returns_413(client, monkeypatch):
+    """Verify upload exceeding MAX_UPLOAD_SIZE_BYTES returns HTTP 413."""
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "MAX_UPLOAD_SIZE_BYTES", 50)
+    files = {"file": ("big.txt", b"A" * 100, "text/plain")}
+    res = client.post("/api/upload", files=files)
+    assert res.status_code == 413
+    assert "exceeds maximum" in res.json()["detail"].lower()
+
+
+def test_upload_processing_timeout_returns_504(client, monkeypatch):
+    """Verify timeout produces clean HTTP 504 with structured error response."""
+    import asyncio
+
+    def mock_hang(*args, **kwargs):
+        raise asyncio.TimeoutError("Extraction timed out")
+
+    monkeypatch.setattr("backend.app.main.asyncio.to_thread", lambda *args, **kwargs: mock_hang())
+    files = {"file": ("syllabus.txt", b"CS101 Topics\n- Intro", "text/plain")}
+    res = client.post("/api/upload", files=files)
+    assert res.status_code == 504
+    data = res.json()
+    assert data["code"] == "DOCUMENT_PROCESSING_TIMEOUT"
+    assert data["retryable"] is True
+
+
+def test_upload_oserror_resource_exhausted_returns_503(client, monkeypatch):
+    """Verify OSError [WinError 1450] produces clean HTTP 503 rather than unhandled crash."""
+    def mock_resource_error(*args, **kwargs):
+        raise OSError(1450, "Insufficient system resources exist to complete the requested service")
+
+    monkeypatch.setattr("backend.app.main.ingest_syllabus_document", mock_resource_error)
+    files = {"file": ("syllabus.txt", b"CS101 Topics\n- Intro", "text/plain")}
+    res = client.post("/api/upload", files=files)
+    assert res.status_code == 503
+    data = res.json()
+    assert data["code"] == "SYSTEM_RESOURCE_EXHAUSTED"
+    assert data["retryable"] is True
+

@@ -1,5 +1,6 @@
 """FastAPI entrypoint and API router implementation for the Syllabus Tracker."""
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -107,9 +108,16 @@ async def invalid_node_handler(request, exc: InvalidNodeError):
 
 @app.exception_handler(FileValidationError)
 async def file_validation_handler(request, exc: FileValidationError):
+    detail = str(exc)
+    status_code = status.HTTP_400_BAD_REQUEST
+    if "maximum allowed size" in detail or "exceeds maximum" in detail:
+        status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    elif "Unsupported file format" in detail:
+        status_code = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+
     return JSONResponse(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        content={"detail": str(exc), "error_type": "FileValidationError"},
+        status_code=status_code,
+        content={"detail": detail, "error_type": "FileValidationError"},
     )
 
 
@@ -190,6 +198,9 @@ def list_syllabi(session: Session = Depends(get_db)):
     return list_syllabi_summaries(session)
 
 
+upload_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_PARSING_JOBS)
+
+
 @app.post("/api/upload", response_model=SyllabusResponse, status_code=status.HTTP_201_CREATED)
 async def upload_syllabus(
     file: UploadFile = File(...),
@@ -206,18 +217,58 @@ async def upload_syllabus(
     content = await file.read()
     if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
         raise FileValidationError(
-            f"File exceeds maximum upload size of {settings.MAX_UPLOAD_SIZE_BYTES // (1024*1024)} MiB."
+            f"File exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE_BYTES // (1024*1024)} MiB."
         )
 
+    timeout_seconds = float(settings.PARSER_TIMEOUT_SECONDS + settings.LLM_TIMEOUT_SECONDS)
+
     try:
-        response = ingest_syllabus_document(
-            session=session,
-            file_bytes=content,
-            filename=file.filename,
-            allow_fallback_extraction=True,
+        async with upload_semaphore:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    ingest_syllabus_document,
+                    session=session,
+                    file_bytes=content,
+                    filename=file.filename,
+                    allow_fallback_extraction=True,
+                ),
+                timeout=timeout_seconds,
+            )
+            session.commit()
+            return response
+    except asyncio.TimeoutError:
+        session.rollback()
+        logger.error(
+            "document.processing.timeout filename=%s limit=%ds",
+            file.filename,
+            int(timeout_seconds),
         )
-        session.commit()
-        return response
+        return JSONResponse(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            content={
+                "detail": f"Processing for '{file.filename}' exceeded the server time limit of {int(timeout_seconds)}s.",
+                "error_type": "DocumentProcessingTimeout",
+                "code": "DOCUMENT_PROCESSING_TIMEOUT",
+                "retryable": True,
+            },
+        )
+    except OSError as os_err:
+        session.rollback()
+        logger.error(
+            "document.processing.os_error filename=%s err=%s",
+            file.filename,
+            os_err,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": "System resources are temporarily exhausted. Please ensure the document is a digital text-based PDF, DOCX, or TXT file.",
+                "error_type": "SystemResourceExhausted",
+                "code": "SYSTEM_RESOURCE_EXHAUSTED",
+                "retryable": True,
+            },
+        )
     except Exception:
         session.rollback()
         raise
