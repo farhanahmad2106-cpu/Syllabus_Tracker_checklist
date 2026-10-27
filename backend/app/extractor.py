@@ -4,7 +4,10 @@ import logging
 from typing import List, Optional, Tuple
 import httpx
 from openai import OpenAI
-import instructor
+try:
+    import instructor
+except ImportError:
+    instructor = None  # type: ignore[assignment]
 
 from backend.app.config import settings
 from backend.app.exceptions import ExtractionError
@@ -93,6 +96,12 @@ def extract_curriculum_with_llm(
             f"Configured models ('{settings.OLLAMA_MODEL}', '{settings.OLLAMA_FALLBACK_MODEL}') "
             f"were not found in Ollama. Available models: {available_models}. "
             f"Run `ollama pull {settings.OLLAMA_MODEL}` or `ollama pull {settings.OLLAMA_FALLBACK_MODEL}`."
+        )
+
+    if instructor is None:
+        raise ExtractionError(
+            "The 'instructor' package is required for structured LLM extraction. "
+            "Please ensure it is installed (`pip install instructor`)."
         )
 
     client = OpenAI(
