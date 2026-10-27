@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Generator, List, Optional, Set, Tuple
 
-from sqlalchemy import create_engine, event, select, delete
+from sqlalchemy import create_engine, event, select, delete, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -61,9 +61,20 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db(db_engine: Optional[Engine] = None) -> None:
-    """Initialize database tables."""
+    """Initialize database tables and run non-destructive schema migrations."""
     target_engine = db_engine or engine
     Base.metadata.create_all(bind=target_engine)
+
+    # Safe idempotent migration: verify content_hash column exists on syllabi table
+    try:
+        with target_engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(syllabi)"))
+            columns = [row[1] for row in result.fetchall()]
+            if "content_hash" not in columns:
+                conn.execute(text("ALTER TABLE syllabi ADD COLUMN content_hash VARCHAR(64)"))
+                conn.commit()
+    except Exception:
+        pass
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -96,12 +107,42 @@ def save_syllabus(
     session: Session,
     syllabus: HierarchicalSyllabus,
     warnings: Optional[List[str]] = None,
+    content_hash: Optional[str] = None,
 ) -> SyllabusRecord:
-    """Persist a new syllabus record transactionally."""
+    """Persist or update a syllabus record transactionally."""
+    eff_hash = content_hash or syllabus.content_hash
+    if not eff_hash:
+        import hashlib
+        eff_hash = hashlib.sha256(syllabus.model_dump_json().encode("utf-8")).hexdigest()
+
+    existing = None
+    if eff_hash:
+        stmt = select(SyllabusRecord).where(
+            SyllabusRecord.content_hash == eff_hash,
+            SyllabusRecord.source_filename == syllabus.source_filename,
+        )
+        existing = session.scalars(stmt).first()
+
+    if not existing:
+        existing = get_syllabus_record(session, syllabus.id)
+
+    if existing:
+        # Update existing record in-place preserving its completions
+        existing.title = syllabus.title
+        existing.source_filename = syllabus.source_filename
+        existing.content_hash = eff_hash
+        existing.schema_version = syllabus.schema_version
+        existing.hierarchy_json = syllabus.model_dump_json()
+        existing.warnings_json = json.dumps(warnings or [])
+        existing.updated_at = datetime.now(timezone.utc)
+        session.flush()
+        return existing
+
     record = SyllabusRecord(
         id=syllabus.id,
         title=syllabus.title,
         source_filename=syllabus.source_filename,
+        content_hash=eff_hash,
         schema_version=syllabus.schema_version,
         hierarchy_json=syllabus.model_dump_json(),
         warnings_json=json.dumps(warnings or []),
@@ -119,14 +160,25 @@ def get_syllabus_record(session: Session, syllabus_id: str) -> Optional[Syllabus
     return session.scalars(stmt).first()
 
 
+def get_syllabus_by_hash(session: Session, content_hash: str) -> Optional[SyllabusRecord]:
+    """Retrieve a syllabus record by its content hash."""
+    stmt = select(SyllabusRecord).where(SyllabusRecord.content_hash == content_hash)
+    return session.scalars(stmt).first()
+
+
 def list_syllabi_summaries(session: Session) -> List[SyllabusSummary]:
-    """List all saved syllabi with their calculated progress totals."""
+    """List all saved syllabi with their calculated progress totals, deduplicating canonical documents."""
     records = session.scalars(
         select(SyllabusRecord).order_by(SyllabusRecord.created_at.desc())
     ).all()
 
     summaries = []
+    seen_ids: Set[str] = set()
     for r in records:
+        if r.id in seen_ids:
+            continue
+        seen_ids.add(r.id)
+
         try:
             raw_data = json.loads(r.hierarchy_json)
             syllabus = HierarchicalSyllabus.model_validate(raw_data)

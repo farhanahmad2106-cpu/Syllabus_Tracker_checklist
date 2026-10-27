@@ -16,7 +16,9 @@ from backend.app.extractor import extract_curriculum
 from backend.app.parser import ParsedDocument
 from backend.app.schemas import (
     ExtractedCurriculum,
+    ExtractedModule,
     ExtractedSemester,
+    ExtractedSubject,
     ExtractedSubtopic,
     ExtractedTopic,
     ExtractedYear,
@@ -191,7 +193,7 @@ def merge_extracted_curricula(
             program_title = cr.program_title.strip()
             break
 
-    # Merge by Year -> Semester -> Topic
+    # Merge by Year -> Semester -> Subject -> Module -> Topic
     years_by_title: dict[str, ExtractedYear] = {}
 
     for cr in chunk_results:
@@ -213,28 +215,43 @@ def merge_extracted_curricula(
                     new_sem = ExtractedSemester(
                         title=sem.title.strip(),
                         semester_number=sem.semester_number,
-                        topics=[],
+                        subjects=[],
                     )
                     target_year.semesters.append(new_sem)
                     sem_by_title[sem_key] = new_sem
                 target_sem = sem_by_title[sem_key]
 
-                # Merge Topics
-                top_by_title = {t.title.strip().lower(): t for t in target_sem.topics}
-                for top in sem.topics:
-                    top_key = top.title.strip().lower()
-                    if top_key not in top_by_title:
-                        new_top = ExtractedTopic(
-                            title=top.title.strip(),
-                            subtopics=[],
+                # Merge Subjects
+                subj_by_title = {s.title.strip().lower(): s for s in target_sem.subjects}
+                for subj in sem.subjects:
+                    subj_key = subj.title.strip().lower()
+                    if subj_key not in subj_by_title:
+                        new_subj = ExtractedSubject(
+                            title=subj.title.strip(),
+                            code=subj.code,
+                            modules=[],
                         )
-                        target_sem.topics.append(new_top)
-                        top_by_title[top_key] = new_top
-                    target_top = top_by_title[top_key]
+                        target_sem.subjects.append(new_subj)
+                        subj_by_title[subj_key] = new_subj
+                    target_subj = subj_by_title[subj_key]
 
-                    # Append subtopics
-                    for sub in top.subtopics:
-                        target_top.subtopics.append(sub)
+                    # Merge Modules
+                    mod_by_title = {m.title.strip().lower(): m for m in target_subj.modules}
+                    for mod in subj.modules:
+                        mod_key = mod.title.strip().lower()
+                        if mod_key not in mod_by_title:
+                            new_mod = ExtractedModule(
+                                title=mod.title.strip(),
+                                module_number=mod.module_number,
+                                topics=[],
+                            )
+                            target_subj.modules.append(new_mod)
+                            mod_by_title[mod_key] = new_mod
+                        target_mod = mod_by_title[mod_key]
+
+                        # Append topics
+                        for top in mod.topics:
+                            target_mod.topics.append(top)
 
     return ExtractedCurriculum(
         program_title=program_title,

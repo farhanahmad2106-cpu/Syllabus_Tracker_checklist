@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Subtopic(BaseModel):
@@ -50,13 +50,45 @@ class Subtopic(BaseModel):
         return v
 
 
-class Topic(BaseModel):
-    """Course, subject, module, or unit within a semester."""
+class Module(BaseModel):
+    """Module or Unit within a Subject."""
     model_config = ConfigDict(strict=False, extra="forbid")
 
     id: str = Field(..., min_length=1)
+    module_number: Optional[str] = Field(default=None)
     title: str = Field(..., min_length=1)
-    subtopics: List[Subtopic] = Field(default_factory=list)
+    topics: List[Subtopic] = Field(default_factory=list)
+    order_index: int = Field(default=0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_subtopics_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "subtopics" in data and "topics" not in data:
+                data["topics"] = data.pop("subtopics")
+        return data
+
+    @field_validator("id", "title")
+    @classmethod
+    def validate_non_blank(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Field must not be empty or whitespace only")
+        return s
+
+    @property
+    def subtopics(self) -> List[Subtopic]:
+        return self.topics
+
+
+class Subject(BaseModel):
+    """Subject or Course within a Semester."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    code: Optional[str] = Field(default=None)
+    title: str = Field(..., min_length=1)
+    modules: List[Module] = Field(default_factory=list)
     order_index: int = Field(default=0, ge=0)
 
     @field_validator("id", "title")
@@ -66,6 +98,11 @@ class Topic(BaseModel):
         if not s:
             raise ValueError("Field must not be empty or whitespace only")
         return s
+
+
+class Topic(Module):
+    """Course topic/module representation supporting backward compatibility."""
+    pass
 
 
 class Semester(BaseModel):
@@ -74,8 +111,49 @@ class Semester(BaseModel):
 
     id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
-    topics: List[Topic] = Field(default_factory=list)
+    subjects: List[Subject] = Field(default_factory=list)
     order_index: int = Field(default=0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_topics(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # If subjects already provided, use it
+            if "subjects" in data and data["subjects"]:
+                return data
+            # If legacy topics provided, migrate them into subjects
+            if "topics" in data and data["topics"]:
+                legacy_topics = data.pop("topics")
+                subjects = []
+                for idx, t in enumerate(legacy_topics):
+                    if isinstance(t, dict):
+                        t_id = t.get("id", f"top_{idx}")
+                        t_title = t.get("title", f"Subject {idx + 1}")
+                        subtopics_raw = t.get("subtopics", t.get("topics", []))
+                        mod = Module(
+                            id=t_id,
+                            module_number=str(idx + 1),
+                            title=f"Module: {t_title}",
+                            topics=[Subtopic.model_validate(s) if isinstance(s, dict) else s for s in subtopics_raw],
+                            order_index=0,
+                        )
+                        subj = Subject(
+                            id=f"{t_id}_subj",
+                            title=t_title,
+                            modules=[mod],
+                            order_index=idx,
+                        )
+                        subjects.append(subj)
+                    elif isinstance(t, Module):
+                        subj = Subject(
+                            id=f"{t.id}_subj",
+                            title=t.title,
+                            modules=[t],
+                            order_index=idx,
+                        )
+                        subjects.append(subj)
+                data["subjects"] = subjects
+        return data
 
     @field_validator("id", "title")
     @classmethod
@@ -84,6 +162,10 @@ class Semester(BaseModel):
         if not s:
             raise ValueError("Field must not be empty or whitespace only")
         return s
+
+    @property
+    def topics(self) -> List[Module]:
+        return [m for s in self.subjects for m in s.modules]
 
 
 class AcademicYear(BaseModel):
@@ -111,6 +193,7 @@ class HierarchicalSyllabus(BaseModel):
     id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
     years: List[AcademicYear] = Field(default_factory=list)
+    content_hash: Optional[str] = Field(default=None)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -118,7 +201,7 @@ class HierarchicalSyllabus(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     source_filename: str = Field(..., min_length=1)
-    schema_version: int = Field(default=1)
+    schema_version: int = Field(default=2)
 
     @field_validator("id", "title", "source_filename")
     @classmethod
@@ -227,17 +310,71 @@ class ExtractedSubtopic(BaseModel):
     source_location: Optional[str] = Field(default=None, description="Section, heading, or paragraph location")
 
 
-class ExtractedTopic(BaseModel):
-    """Topic or Course unit extracted by Instructor/LLM."""
-    title: str = Field(..., description="Course, topic, subject, or unit title")
-    subtopics: List[ExtractedSubtopic] = Field(default_factory=list)
+class ExtractedModule(BaseModel):
+    """Module or Unit within a Course/Subject."""
+    title: str = Field(..., description="Module or unit title, e.g. 'Unit 1: Data Structures'")
+    module_number: Optional[str] = Field(default=None, description="Unit/module label or number, e.g. 'Unit I', 'Module 1'")
+    topics: List[ExtractedSubtopic] = Field(default_factory=list, description="Leaf subtopics/concepts")
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_subtopics_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "subtopics" in data and "topics" not in data:
+                data["topics"] = data.pop("subtopics")
+        return data
+
+    @property
+    def subtopics(self) -> List[ExtractedSubtopic]:
+        return self.topics
+
+
+class ExtractedSubject(BaseModel):
+    """Subject or Course within a Semester."""
+    title: str = Field(..., description="Course or subject title, e.g. 'Computer Science 101'")
+    code: Optional[str] = Field(default=None, description="Subject code, e.g. 'CS101'")
+    modules: List[ExtractedModule] = Field(default_factory=list, description="List of modules/units")
+
+
+class ExtractedTopic(ExtractedModule):
+    """Backward compatibility alias for ExtractedModule."""
+    pass
 
 
 class ExtractedSemester(BaseModel):
     """Semester extracted by Instructor/LLM."""
     title: str = Field(..., description="Semester title, e.g. 'Semester 1', 'Semester 2', 'Spring'")
     semester_number: Optional[int] = Field(default=None, description="Sequential integer number if applicable (e.g. 1, 2, 3)")
-    topics: List[ExtractedTopic] = Field(default_factory=list)
+    subjects: List[ExtractedSubject] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_legacy_topics(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "subjects" in data and data["subjects"]:
+                return data
+            if "topics" in data and data["topics"]:
+                legacy_topics = data.pop("topics")
+                subjects = []
+                for idx, t in enumerate(legacy_topics):
+                    if isinstance(t, dict):
+                        t_title = t.get("title", f"Subject {idx + 1}")
+                        subtopics_raw = t.get("subtopics", t.get("topics", []))
+                        subs = [ExtractedSubtopic.model_validate(s) if isinstance(s, dict) else s for s in subtopics_raw]
+                        mod = ExtractedModule(
+                            title=f"Module: {t_title}",
+                            module_number=str(idx + 1),
+                            topics=subs,
+                        )
+                        subjects.append(ExtractedSubject(title=t_title, modules=[mod]))
+                    elif isinstance(t, ExtractedModule):
+                        subjects.append(ExtractedSubject(title=t.title, modules=[t]))
+                data["subjects"] = subjects
+        return data
+
+    @property
+    def topics(self) -> List[ExtractedModule]:
+        return [m for s in self.subjects for m in s.modules]
 
 
 class ExtractedYear(BaseModel):

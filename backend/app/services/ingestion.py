@@ -2,6 +2,7 @@
 Supports both asynchronous job execution with real-time SSE progress updates and synchronous ingestion.
 """
 
+import hashlib
 import logging
 import os
 import time
@@ -47,6 +48,10 @@ def ingest_syllabus_document(
     # 1. Parse document
     parsed_doc = parse_uploaded_file(file_bytes, filename)
 
+    # Calculate content hash for deduplication
+    import hashlib
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+
     # 2. Semantic chunking & extraction
     chunks = detect_semantic_chunks(parsed_doc)
     extracted = process_chunks_with_progress(
@@ -58,18 +63,28 @@ def ingest_syllabus_document(
     )
 
     # 3. Canonicalize and validate
-    syllabus_id = f"syl_{uuid.uuid4().hex[:12]}"
+    from sqlalchemy import select
+    from backend.app.models import SyllabusRecord
+
+    stmt = select(SyllabusRecord).where(
+        SyllabusRecord.content_hash == content_hash,
+        SyllabusRecord.source_filename == filename,
+    )
+    existing_rec = session.scalars(stmt).first()
+    syllabus_id = existing_rec.id if existing_rec else f"syl_{uuid.uuid4().hex[:12]}"
+
     canonical_syllabus, warnings = canonicalize_extracted_curriculum(
         extracted=extracted,
         source_filename=filename,
-        source_document_text=parsed_doc.text,
+        source_document_text=parsed_doc.raw_text or parsed_doc.text,
         syllabus_id=syllabus_id,
     )
+    canonical_syllabus.content_hash = content_hash
 
     # 4. Save to SQLite within active transaction
-    save_syllabus(session, canonical_syllabus, warnings=warnings)
+    save_syllabus(session, canonical_syllabus, warnings=warnings, content_hash=content_hash)
 
-    # 5. Compute initial progress (0 completed)
+    # 5. Compute initial progress
     completed_ids = get_completed_leaf_ids(session, canonical_syllabus.id)
     prog, node_prog = calculate_syllabus_progress(canonical_syllabus, completed_ids)
 
@@ -203,13 +218,19 @@ def process_ingestion_job(
             message="Canonicalizing 5-level hierarchy and verifying verbatim source evidence.",
         )
 
-        syllabus_id = f"syl_{uuid.uuid4().hex[:12]}"
+        content_hash = hashlib.sha256(file_bytes).hexdigest()
+        from backend.app.database import get_syllabus_by_hash
+        with get_db_context() as session:
+            existing_rec = get_syllabus_by_hash(session, content_hash)
+            syllabus_id = existing_rec.id if existing_rec else f"syl_{uuid.uuid4().hex[:12]}"
+
         canonical_syllabus, warnings = canonicalize_extracted_curriculum(
             extracted=extracted,
             source_filename=filename,
-            source_document_text=parsed_doc.text,
+            source_document_text=parsed_doc.raw_text or parsed_doc.text,
             syllabus_id=syllabus_id,
         )
+        canonical_syllabus.content_hash = content_hash
 
         job_manager.update(
             job_id=job_id,
@@ -230,7 +251,7 @@ def process_ingestion_job(
         )
 
         with get_db_context() as session:
-            save_syllabus(session, canonical_syllabus, warnings=warnings)
+            save_syllabus(session, canonical_syllabus, warnings=warnings, content_hash=content_hash)
             completed_ids = get_completed_leaf_ids(session, canonical_syllabus.id)
             prog, node_prog = calculate_syllabus_progress(canonical_syllabus, completed_ids)
 

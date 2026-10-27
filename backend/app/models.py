@@ -15,7 +15,8 @@ class SyllabusRecord(Base):
     id = Column(String(64), primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     source_filename = Column(String(255), nullable=False)
-    schema_version = Column(Integer, default=1, nullable=False)
+    content_hash = Column(String(64), nullable=True, index=True)
+    schema_version = Column(Integer, default=2, nullable=False)
     hierarchy_json = Column(Text, nullable=False)
     warnings_json = Column(Text, nullable=True, default="[]")
     created_at = Column(

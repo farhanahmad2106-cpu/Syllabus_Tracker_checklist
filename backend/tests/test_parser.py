@@ -262,3 +262,52 @@ def test_parse_docx_with_python_docx():
     assert "Sorting Algorithms" in parsed.text
     assert "Graph Traversal" in parsed.text
     assert parsed.has_reliable_pages is False
+
+
+def test_clean_extracted_syllabus_text_boilerplate_and_page_numbers():
+    """Verify clean_extracted_syllabus_text strips boilerplate and page numbers while preserving legitimate content."""
+    from backend.app.parser import clean_extracted_syllabus_text
+
+    raw = """
+Department of Computer Science & Engineering
+Unit syllabus detailed learning outcomes and lab exercises.
+Page 1 of 24
+Module 1: Advanced Algorithms
+Unit 1.1: Asymptotic Analysis and Divide-and-Conquer
+Page 2 of 24
+Unit syllabus detailed learning outcomes and lab exercises.
+Module 2: Graph Theory
+- 3 -
+Unit 2.1: Minimum Spanning Trees and Shortest Paths
+    """
+
+    cleaned = clean_extracted_syllabus_text(raw)
+    assert "Unit syllabus detailed learning outcomes" not in cleaned
+    assert "Page 1 of 24" not in cleaned
+    assert "Page 2 of 24" not in cleaned
+    assert "- 3 -" not in cleaned
+    # Verify legitimate content is strictly preserved
+    assert "Module 1: Advanced Algorithms" in cleaned
+    assert "Unit 1.1: Asymptotic Analysis and Divide-and-Conquer" in cleaned
+    assert "Module 2: Graph Theory" in cleaned
+    assert "Unit 2.1: Minimum Spanning Trees and Shortest Paths" in cleaned
+
+
+def test_remove_running_headers_and_footers_multi_page():
+    """Verify repeated running headers and footers appearing across pages are pruned safely."""
+    from backend.app.parser import remove_running_headers_and_footers
+
+    pages = [
+        "Jawaharlal Nehru Technological University\nB.Tech Computer Science Syllabus 2024\nSemester 1 Subjects:\nMathematics I",
+        "Jawaharlal Nehru Technological University\nB.Tech Computer Science Syllabus 2024\nSemester 1 Subjects:\nPhysics",
+        "Jawaharlal Nehru Technological University\nB.Tech Computer Science Syllabus 2024\nSemester 2 Subjects:\nData Structures",
+    ]
+
+    cleaned_pages = remove_running_headers_and_footers(pages)
+    for p in cleaned_pages:
+        assert "Jawaharlal Nehru Technological University" not in p
+        assert "B.Tech Computer Science Syllabus 2024" not in p
+    assert "Mathematics I" in cleaned_pages[0]
+    assert "Physics" in cleaned_pages[1]
+    assert "Data Structures" in cleaned_pages[2]
+

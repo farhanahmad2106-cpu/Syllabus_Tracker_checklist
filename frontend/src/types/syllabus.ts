@@ -2,37 +2,58 @@
  * Canonical TypeScript interfaces mirroring the backend Pydantic v2 domain contracts.
  */
 
+export type GroundingStatus = 'verified' | 'needs_review' | 'unverified';
+
 export interface Subtopic {
   id: string;
   title: string;
   source_text: string;
-  source_page: number | null;
+  source_page?: number | null;
   source_location?: string | Record<string, unknown> | null;
   source_document_id?: string | null;
-  evidence_status?: 'verified' | 'needs_review' | 'unverified';
-  grounding_status?: 'verified' | 'needs_review' | 'unverified';
-  order_index: number;
+  evidence_status?: GroundingStatus;
+  grounding_status?: GroundingStatus;
+  order_index?: number;
+}
+
+export interface Module {
+  id: string;
+  module_number?: string | null;
+  title: string;
+  topics: Subtopic[];
+  order_index?: number;
+}
+
+export interface Subject {
+  id: string;
+  code?: string | null;
+  title: string;
+  modules: Module[];
+  order_index?: number;
 }
 
 export interface Topic {
   id: string;
   title: string;
-  subtopics: Subtopic[];
-  order_index: number;
+  subtopics?: Subtopic[];
+  topics?: Subtopic[];
+  modules?: Module[];
+  order_index?: number;
 }
 
 export interface Semester {
   id: string;
   title: string;
-  topics: Topic[];
-  order_index: number;
+  subjects?: Subject[];
+  topics?: Topic[];
+  order_index?: number;
 }
 
 export interface AcademicYear {
   id: string;
   title: string;
   semesters: Semester[];
-  order_index: number;
+  order_index?: number;
 }
 
 export type Year = AcademicYear;
@@ -45,6 +66,7 @@ export interface HierarchicalSyllabus {
   updated_at: string;
   source_filename: string;
   schema_version: number;
+  content_hash?: string | null;
 }
 
 export interface ProgressSummary {

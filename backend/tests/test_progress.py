@@ -126,3 +126,128 @@ def test_explicit_target_state_is_idempotent(sample_syllabus):
         algo_leaves, {"sub_arr", "sub_stack"}, explicit_target_state=False
     )
     assert s3 is False
+
+
+def test_five_level_hierarchy_descendant_traversal():
+    """Verify descendant leaf ID resolution across all 5 tiers: Year -> Semester -> Subject -> Module -> Topic."""
+    from backend.app.schemas import (
+        AcademicYear,
+        HierarchicalSyllabus,
+        Module,
+        Semester,
+        Subject,
+        Subtopic,
+    )
+
+    syl = HierarchicalSyllabus(
+        id="syl_5tier",
+        title="B.Tech AI & Data Science",
+        source_filename="syllabus_5tier.pdf",
+        years=[
+            AcademicYear(
+                id="yr_1",
+                title="Year 1",
+                semesters=[
+                    Semester(
+                        id="sem_1",
+                        title="Semester 1",
+                        subjects=[
+                            Subject(
+                                id="sub_cs101",
+                                code="CS101",
+                                title="Data Structures",
+                                modules=[
+                                    Module(
+                                        id="mod_1",
+                                        module_number="Module 1",
+                                        title="Linear Structures",
+                                        topics=[
+                                            Subtopic(id="top_1", title="Arrays", source_text="Arrays"),
+                                            Subtopic(id="top_2", title="Linked Lists", source_text="Linked Lists"),
+                                        ],
+                                    ),
+                                    Module(
+                                        id="mod_2",
+                                        module_number="Module 2",
+                                        title="Non-Linear Structures",
+                                        topics=[
+                                            Subtopic(id="top_3", title="Trees", source_text="Trees"),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    Semester(
+                        id="sem_2",
+                        title="Semester 2",
+                        subjects=[
+                            Subject(
+                                id="sub_cs102",
+                                code="CS102",
+                                title="Algorithms",
+                                modules=[
+                                    Module(
+                                        id="mod_3",
+                                        module_number="Module 1",
+                                        title="Sorting",
+                                        topics=[
+                                            Subtopic(id="top_4", title="Quicksort", source_text="Quicksort"),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    # 1. Year level
+    yr_leaves = get_node_descendant_leaf_ids(syl, "yr_1")
+    assert yr_leaves == ["top_1", "top_2", "top_3", "top_4"]
+
+    # 2. Semester level
+    sem1_leaves = get_node_descendant_leaf_ids(syl, "sem_1")
+    assert sem1_leaves == ["top_1", "top_2", "top_3"]
+
+    # 3. Subject level
+    subj_leaves = get_node_descendant_leaf_ids(syl, "sub_cs101")
+    assert subj_leaves == ["top_1", "top_2", "top_3"]
+
+    # 4. Module level
+    mod1_leaves = get_node_descendant_leaf_ids(syl, "mod_1")
+    assert mod1_leaves == ["top_1", "top_2"]
+    mod2_leaves = get_node_descendant_leaf_ids(syl, "mod_2")
+    assert mod2_leaves == ["top_3"]
+
+    # 5. Topic leaf itself
+    top_leaf = get_node_descendant_leaf_ids(syl, "top_1")
+    assert top_leaf == ["top_1"]
+
+    # 6. Invalid ID returns empty list
+    assert get_node_descendant_leaf_ids(syl, "non_existent_id") == []
+
+    # 7. Progress calculation across 5 tiers
+    prog, node_prog = calculate_syllabus_progress(syl, {"top_1", "top_2"})
+    assert prog.completed_leaves == 2
+    assert prog.total_leaves == 4
+    assert prog.progress_percent == 50.0
+
+    # Module 1: 2/2 -> 100%
+    assert node_prog["mod_1"].completed_leaves == 2
+    assert node_prog["mod_1"].progress_percent == 100.0
+    # Module 2: 0/1 -> 0%
+    assert node_prog["mod_2"].completed_leaves == 0
+    assert node_prog["mod_2"].progress_percent == 0.0
+    # Subject: 2/3 -> 66.7%
+    assert node_prog["sub_cs101"].completed_leaves == 2
+    assert node_prog["sub_cs101"].progress_percent == 66.7
+    # Semester 1: 2/3 -> 66.7%
+    assert node_prog["sem_1"].completed_leaves == 2
+    assert node_prog["sem_1"].progress_percent == 66.7
+    # Year 1: 2/4 -> 50%
+    assert node_prog["yr_1"].completed_leaves == 2
+    assert node_prog["yr_1"].progress_percent == 50.0
+

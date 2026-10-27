@@ -4,8 +4,10 @@ from typing import Dict, List, Literal, Set, Tuple
 from backend.app.schemas import (
     AcademicYear,
     HierarchicalSyllabus,
+    Module,
     ProgressSummary,
     Semester,
+    Subject,
     Subtopic,
     Topic,
 )
@@ -32,20 +34,21 @@ def compute_progress_summary(completed: int, total: int) -> ProgressSummary:
 
 
 def get_all_leaf_ids(syllabus: HierarchicalSyllabus) -> List[str]:
-    """Return all leaf subtopic IDs in document order."""
+    """Return all leaf subtopic/topic IDs in document order without duplicates."""
     leaf_ids: List[str] = []
     for yr in syllabus.years:
         for sem in yr.semesters:
-            for top in sem.topics:
-                for sub in top.subtopics:
-                    leaf_ids.append(sub.id)
-    return leaf_ids
+            for subj in sem.subjects:
+                for mod in subj.modules:
+                    for top in mod.topics:
+                        leaf_ids.append(top.id)
+    return list(dict.fromkeys(leaf_ids))
 
 
 def get_node_descendant_leaf_ids(
     syllabus: HierarchicalSyllabus, node_id: str
 ) -> List[str]:
-    """Find all descendant leaf subtopic IDs for any node ID (syllabus, year, semester, topic, or subtopic)."""
+    """Find all descendant leaf topic IDs for any node ID (syllabus, year, semester, subject, module, or topic leaf)."""
     # 1. If node is root syllabus ID
     if node_id == syllabus.id:
         return get_all_leaf_ids(syllabus)
@@ -53,31 +56,42 @@ def get_node_descendant_leaf_ids(
     # 2. Year level
     for yr in syllabus.years:
         if yr.id == node_id:
-            leaves = []
+            leaves: List[str] = []
             for sem in yr.semesters:
-                for top in sem.topics:
-                    for sub in top.subtopics:
-                        leaves.append(sub.id)
-            return leaves
+                for subj in sem.subjects:
+                    for mod in subj.modules:
+                        for top in mod.topics:
+                            leaves.append(top.id)
+            return list(dict.fromkeys(leaves))
 
         # 3. Semester level
         for sem in yr.semesters:
             if sem.id == node_id:
                 leaves = []
-                for top in sem.topics:
-                    for sub in top.subtopics:
-                        leaves.append(sub.id)
-                return leaves
+                for subj in sem.subjects:
+                    for mod in subj.modules:
+                        for top in mod.topics:
+                            leaves.append(top.id)
+                return list(dict.fromkeys(leaves))
 
-            # 4. Topic level
-            for top in sem.topics:
-                if top.id == node_id:
-                    return [sub.id for sub in top.subtopics]
+            # 4. Subject level
+            for subj in sem.subjects:
+                if subj.id == node_id:
+                    leaves = []
+                    for mod in subj.modules:
+                        for top in mod.topics:
+                            leaves.append(top.id)
+                    return list(dict.fromkeys(leaves))
 
-                # 5. Subtopic level
-                for sub in top.subtopics:
-                    if sub.id == node_id:
-                        return [sub.id]
+                # 5. Module level
+                for mod in subj.modules:
+                    if mod.id == node_id:
+                        return list(dict.fromkeys([top.id for top in mod.topics]))
+
+                    # 6. Topic leaf level
+                    for top in mod.topics:
+                        if top.id == node_id:
+                            return [top.id]
 
     return []
 
@@ -92,12 +106,15 @@ def node_exists_in_syllabus(syllabus: HierarchicalSyllabus, node_id: str) -> boo
         for sem in yr.semesters:
             if sem.id == node_id:
                 return True
-            for top in sem.topics:
-                if top.id == node_id:
+            for subj in sem.subjects:
+                if subj.id == node_id:
                     return True
-                for sub in top.subtopics:
-                    if sub.id == node_id:
+                for mod in subj.modules:
+                    if mod.id == node_id:
                         return True
+                    for top in mod.topics:
+                        if top.id == node_id:
+                            return True
     return False
 
 
@@ -105,10 +122,11 @@ def is_leaf_id(syllabus: HierarchicalSyllabus, leaf_id: str) -> bool:
     """Return True if leaf_id corresponds to a leaf subtopic."""
     for yr in syllabus.years:
         for sem in yr.semesters:
-            for top in sem.topics:
-                for sub in top.subtopics:
-                    if sub.id == leaf_id:
-                        return True
+            for subj in sem.subjects:
+                for mod in subj.modules:
+                    for top in mod.topics:
+                        if top.id == leaf_id:
+                            return True
     return False
 
 
@@ -145,17 +163,24 @@ def calculate_syllabus_progress(
         yr_leaves: List[str] = []
         for sem in yr.semesters:
             sem_leaves: List[str] = []
-            for top in sem.topics:
-                top_leaves = [sub.id for sub in top.subtopics]
-                top_completed = sum(1 for lid in top_leaves if lid in completed_leaf_ids)
-                top_prog = compute_progress_summary(top_completed, len(top_leaves))
-                node_progress[top.id] = top_prog
-                sem_leaves.extend(top_leaves)
+            for subj in sem.subjects:
+                subj_leaves: List[str] = []
+                for mod in subj.modules:
+                    mod_leaves = [top.id for top in mod.topics]
+                    mod_completed = sum(1 for lid in mod_leaves if lid in completed_leaf_ids)
+                    mod_prog = compute_progress_summary(mod_completed, len(mod_leaves))
+                    node_progress[mod.id] = mod_prog
+                    subj_leaves.extend(mod_leaves)
 
-                # Subtopic level progress (0 or 100%)
-                for sub in top.subtopics:
-                    is_done = 1 if sub.id in completed_leaf_ids else 0
-                    node_progress[sub.id] = compute_progress_summary(is_done, 1)
+                    # Subtopic/Topic leaf level progress (0 or 100%)
+                    for top in mod.topics:
+                        is_done = 1 if top.id in completed_leaf_ids else 0
+                        node_progress[top.id] = compute_progress_summary(is_done, 1)
+
+                subj_completed = sum(1 for lid in subj_leaves if lid in completed_leaf_ids)
+                subj_prog = compute_progress_summary(subj_completed, len(subj_leaves))
+                node_progress[subj.id] = subj_prog
+                sem_leaves.extend(subj_leaves)
 
             sem_completed = sum(1 for lid in sem_leaves if lid in completed_leaf_ids)
             sem_prog = compute_progress_summary(sem_completed, len(sem_leaves))

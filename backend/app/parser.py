@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -34,14 +35,126 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".doc"}
 
 
+def clean_extracted_syllabus_text(raw_text: str) -> str:
+    """
+    Remove recognized repetitive syllabus boilerplate safely.
+    Preserves legitimate syllabus content, topic titles, and learning items.
+    """
+    if not raw_text:
+        return ""
+
+    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # 1. Exact recognized boilerplate phrases
+    text = re.sub(
+        r"(?im)^[ \t]*Unit syllabus detailed learning outcomes and lab exercises\.?[ \t]*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?im)^[ \t]*All rights reserved\.?[ \t]*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?im)^[ \t]*Internal(?: / External)? examination guidelines and grading scheme\.?[ \t]*$",
+        "",
+        text,
+    )
+
+    # 2. Running page numbers and margin noise
+    text = re.sub(
+        r"(?im)^[ \t]*Page[ \t]+\d+[ \t]+(?:of|/)[ \t]+\d+[ \t]*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?im)^[ \t]*Page[ \t]+\d+[ \t]*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?im)^[ \t]*[-–—]\s*\d+\s*[-–—][ \t]*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^[ \t]*\d+\s*/\s*\d+[ \t]*$",
+        "",
+        text,
+    )
+
+    # 3. Collapse excessive blank lines
+    text = re.sub(
+        r"\n[ \t]*\n(?:[ \t]*\n)+",
+        "\n\n",
+        text,
+    )
+
+    return text.strip()
+
+
+def remove_running_headers_and_footers(pages_text: List[str]) -> List[str]:
+    """Detect and remove repeated running headers and footers across pages safely."""
+    if len(pages_text) < 3:
+        return pages_text
+
+    from collections import Counter
+    top_lines = Counter()
+    bottom_lines = Counter()
+
+    for p in pages_text:
+        lines = [line.strip() for line in p.splitlines() if line.strip()]
+        for l in lines[:3]:
+            top_lines[l] += 1
+        for l in lines[-2:]:
+            bottom_lines[l] += 1
+
+    # Candidate headers/footers appearing on >= 50% of pages and at least 3 pages
+    threshold = max(3, len(pages_text) // 2)
+    excluded_prefixes = ("unit", "module", "chapter", "course", "subject", "year", "sem", "topic", "#", "*", "-")
+    repeated_headers = {
+        line for line, count in top_lines.items()
+        if count >= threshold and not any(line.lower().startswith(p) for p in excluded_prefixes)
+    }
+    repeated_footers = {
+        line for line, count in bottom_lines.items()
+        if count >= threshold and not any(line.lower().startswith(p) for p in excluded_prefixes)
+    }
+
+    if not repeated_headers and not repeated_footers:
+        return pages_text
+
+    cleaned_pages = []
+    for p in pages_text:
+        lines = p.splitlines()
+        n = len(lines)
+        filtered = []
+        for idx, line in enumerate(lines):
+            s = line.strip()
+            if idx < 3 and s in repeated_headers:
+                continue
+            if idx >= max(0, n - 2) and s in repeated_footers:
+                continue
+            filtered.append(line)
+        cleaned_pages.append("\n".join(filtered))
+
+    return cleaned_pages
+
+
 @dataclass
 class ParsedDocument:
     """Normalized document representation containing extracted text and page mapping."""
     text: str
+    raw_text: str = ""
     pages: List[Tuple[Optional[int], str]] = field(default_factory=list)
     has_reliable_pages: bool = False
     source_filename: str = ""
     warnings: List[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.raw_text:
+            self.raw_text = self.text
 
 
 def validate_file_metadata(filename: str, file_size: int) -> str:
@@ -88,8 +201,10 @@ def parse_txt_content(content_bytes: bytes, filename: str) -> ParsedDocument:
         text = text[: settings.MAX_EXTRACTED_TEXT_CHARS]
 
     # TXT files have no native page breaks
+    cleaned_text = clean_extracted_syllabus_text(text)
     return ParsedDocument(
-        text=text,
+        text=cleaned_text,
+        raw_text=text,
         pages=[(None, text)],
         has_reliable_pages=False,
         source_filename=filename,
@@ -162,8 +277,10 @@ def parse_pdf_pypdf(file_path: str, filename: str) -> Optional[ParsedDocument]:
         )
         full_text = full_text[: settings.MAX_EXTRACTED_TEXT_CHARS]
 
+    cleaned_full_text = clean_extracted_syllabus_text(full_text)
     return ParsedDocument(
-        text=full_text,
+        text=cleaned_full_text,
+        raw_text=full_text,
         pages=pages,
         has_reliable_pages=True,
         source_filename=filename,
@@ -201,8 +318,10 @@ def parse_docx_python_docx(file_path: str, filename: str) -> ParsedDocument:
         full_text = full_text[: settings.MAX_EXTRACTED_TEXT_CHARS]
 
     # DOCX doesn't have reliable fixed physical pages without layout engine
+    cleaned_full_text = clean_extracted_syllabus_text(full_text)
     return ParsedDocument(
-        text=full_text,
+        text=cleaned_full_text,
+        raw_text=full_text,
         pages=[(None, full_text)],
         has_reliable_pages=False,
         source_filename=filename,
@@ -230,8 +349,10 @@ def parse_with_docling_if_available(file_path: str, filename: str) -> Optional[P
             md_text = result.document.export_to_markdown()
             if md_text and md_text.strip():
                 is_pdf = filename.lower().endswith(".pdf")
+                cleaned_md = clean_extracted_syllabus_text(md_text)
                 return ParsedDocument(
-                    text=md_text,
+                    text=cleaned_md,
+                    raw_text=md_text,
                     pages=[(1 if is_pdf else None, md_text)],
                     has_reliable_pages=is_pdf,
                     source_filename=filename,

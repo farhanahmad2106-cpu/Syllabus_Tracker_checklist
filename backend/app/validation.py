@@ -9,7 +9,9 @@ from backend.app.schemas import (
     AcademicYear,
     ExtractedCurriculum,
     HierarchicalSyllabus,
+    Module,
     Semester,
+    Subject,
     Subtopic,
     Topic,
 )
@@ -63,7 +65,8 @@ def canonicalize_extracted_curriculum(
     syllabus_id: str,
 ) -> Tuple[HierarchicalSyllabus, List[str]]:
     """
-    Transforms extracted curriculum into canonical 5-level HierarchicalSyllabus.
+    Transforms extracted curriculum into canonical 5-level HierarchicalSyllabus:
+    Document Root -> Academic Year -> Semester -> Subject -> Module -> Topic.
     Validates source grounding, unique IDs, positive page numbers, and structural completeness.
     """
     warnings: List[str] = []
@@ -80,8 +83,6 @@ def canonicalize_extracted_curriculum(
     canonical_years: List[AcademicYear] = []
     year_index = 0
 
-    # If the LLM returned years, process them.
-    # If the LLM returned semesters directly or didn't populate years, group them.
     for y_idx, ext_year in enumerate(extracted.years):
         year_title = ext_year.title.strip() if ext_year.title else f"Academic Year {y_idx + 1}"
         year_id = f"year_{y_idx + 1}"
@@ -95,69 +96,107 @@ def canonicalize_extracted_curriculum(
             sem_id = f"{year_id}_sem_{s_idx + 1}"
             seen_ids.add(sem_id)
 
-            canonical_topics: List[Topic] = []
-            for t_idx, ext_top in enumerate(ext_sem.topics):
-                top_title = ext_top.title.strip() if ext_top.title else f"Topic {t_idx + 1}"
-                top_id = f"{sem_id}_topic_{t_idx + 1}"
-                seen_ids.add(top_id)
-
-                canonical_subtopics: List[Subtopic] = []
-                for sub_idx, ext_sub in enumerate(ext_top.subtopics):
-                    sub_title = ext_sub.title.strip() if ext_sub.title else f"Subtopic {sub_idx + 1}"
-                    sub_id = f"{top_id}_sub_{sub_idx + 1}"
-                    seen_ids.add(sub_id)
-
-                    evidence = ext_sub.source_text.strip()
-                    if not evidence:
-                        evidence = sub_title
-
-                    # Check source grounding
-                    evidence_status = "verified"
-                    if source_document_text:
-                        is_grounded = verify_grounding(evidence, source_document_text)
-                        if not is_grounded:
-                            # Try matching sub_title as fallback
-                            if verify_grounding(sub_title, source_document_text):
-                                evidence = sub_title
-                            else:
-                                evidence_status = "needs_review"
-                                warnings.append(
-                                    f"Evidence for subtopic '{sub_title}' was not found verbatim in source document."
-                                )
-
-                    page = ext_sub.source_page
-                    if page is not None and page < 1:
-                        page = None
-
-                    subtopic = Subtopic(
-                        id=sub_id,
-                        title=sub_title,
-                        source_text=evidence,
-                        source_page=page,
-                        source_location=ext_sub.source_location,
-                        source_document_id=syllabus_id,
-                        evidence_status=evidence_status,
-                        grounding_status=evidence_status,
-                        order_index=sub_idx,
+            canonical_subjects: List[Subject] = []
+            # Check subjects (with backward compatibility fallback to topics)
+            raw_subjects = ext_sem.subjects
+            if not raw_subjects and hasattr(ext_sem, "topics") and ext_sem.topics:
+                # Legacy format: each topic becomes a subject with a single module
+                raw_subjects = [
+                    Subject(
+                        id=f"{sem_id}_subj_{t_idx + 1}",
+                        title=t.title,
+                        modules=[
+                            Module(
+                                id=f"{sem_id}_mod_{t_idx + 1}",
+                                module_number=str(t_idx + 1),
+                                title=f"Module: {t.title}",
+                                topics=t.subtopics if hasattr(t, "subtopics") else t.topics,
+                            )
+                        ],
                     )
-                    canonical_subtopics.append(subtopic)
+                    for t_idx, t in enumerate(ext_sem.topics)
+                ]
 
-                if canonical_subtopics:
-                    canonical_topics.append(
-                        Topic(
+            for subj_idx, ext_subj in enumerate(raw_subjects):
+                subj_title = ext_subj.title.strip() if ext_subj.title else f"Subject {subj_idx + 1}"
+                subj_id = f"{sem_id}_subj_{subj_idx + 1}"
+                seen_ids.add(subj_id)
+
+                canonical_modules: List[Module] = []
+                for mod_idx, ext_mod in enumerate(ext_subj.modules):
+                    mod_title = ext_mod.title.strip() if ext_mod.title else f"Module {mod_idx + 1}"
+                    mod_id = f"{subj_id}_mod_{mod_idx + 1}"
+                    seen_ids.add(mod_id)
+
+                    canonical_topics: List[Subtopic] = []
+                    mod_topics = ext_mod.topics if hasattr(ext_mod, "topics") else getattr(ext_mod, "subtopics", [])
+                    for top_idx, ext_sub in enumerate(mod_topics):
+                        top_title = ext_sub.title.strip() if ext_sub.title else f"Topic {top_idx + 1}"
+                        top_id = f"{mod_id}_topic_{top_idx + 1}"
+                        seen_ids.add(top_id)
+
+                        evidence = ext_sub.source_text.strip() if hasattr(ext_sub, "source_text") and ext_sub.source_text else ""
+                        if not evidence:
+                            evidence = top_title
+
+                        # Grounding verification against original source text
+                        evidence_status = "verified"
+                        if source_document_text:
+                            is_grounded = verify_grounding(evidence, source_document_text)
+                            if not is_grounded:
+                                if verify_grounding(top_title, source_document_text):
+                                    evidence = top_title
+                                else:
+                                    evidence_status = "needs_review"
+                                    warnings.append(
+                                        f"Evidence for topic '{top_title}' was not found verbatim in source document."
+                                    )
+
+                        page = getattr(ext_sub, "source_page", None)
+                        if page is not None and page < 1:
+                            page = None
+
+                        subtopic = Subtopic(
                             id=top_id,
                             title=top_title,
-                            subtopics=canonical_subtopics,
-                            order_index=t_idx,
+                            source_text=evidence,
+                            source_page=page,
+                            source_location=getattr(ext_sub, "source_location", None),
+                            source_document_id=syllabus_id,
+                            evidence_status=evidence_status,
+                            grounding_status=evidence_status,
+                            order_index=top_idx,
+                        )
+                        canonical_topics.append(subtopic)
+
+                    if canonical_topics:
+                        canonical_modules.append(
+                            Module(
+                                id=mod_id,
+                                module_number=getattr(ext_mod, "module_number", None),
+                                title=mod_title,
+                                topics=canonical_topics,
+                                order_index=mod_idx,
+                            )
+                        )
+
+                if canonical_modules:
+                    canonical_subjects.append(
+                        Subject(
+                            id=subj_id,
+                            code=getattr(ext_subj, "code", None),
+                            title=subj_title,
+                            modules=canonical_modules,
+                            order_index=subj_idx,
                         )
                     )
 
-            if canonical_topics:
+            if canonical_subjects:
                 canonical_semesters.append(
                     Semester(
                         id=sem_id,
                         title=sem_title,
-                        topics=canonical_topics,
+                        subjects=canonical_subjects,
                         order_index=s_idx,
                     )
                 )
@@ -175,16 +214,17 @@ def canonicalize_extracted_curriculum(
 
     # Check for empty hierarchy
     total_leaves = sum(
-        len(top.subtopics)
+        len(mod.topics)
         for yr in canonical_years
         for sem in yr.semesters
-        for top in sem.topics
+        for subj in sem.subjects
+        for mod in subj.modules
     )
 
     if total_leaves == 0:
         raise HierarchyValidationError(
             "Extracted syllabus contains no valid checklist subtopics. "
-            "A document without reliably extractable subtopics cannot be populated as a syllabus."
+            "A document without reliably extractable topics cannot be populated as a syllabus."
         )
 
     syllabus = HierarchicalSyllabus(
@@ -192,7 +232,7 @@ def canonicalize_extracted_curriculum(
         title=title,
         years=canonical_years,
         source_filename=source_filename,
-        schema_version=1,
+        schema_version=2,
     )
 
     validate_canonical_syllabus(syllabus)
@@ -223,26 +263,33 @@ def validate_canonical_syllabus(syllabus: HierarchicalSyllabus) -> None:
             if not sem.title or not sem.title.strip():
                 raise HierarchyValidationError(f"Semester {sem.id} has a blank title.")
 
-            for top in sem.topics:
-                if top.id in seen_ids:
-                    raise HierarchyValidationError(f"Duplicate node ID detected: {top.id}")
-                seen_ids.add(top.id)
-                if not top.title or not top.title.strip():
-                    raise HierarchyValidationError(f"Topic {top.id} has a blank title.")
+            for subj in sem.subjects:
+                if subj.id in seen_ids:
+                    raise HierarchyValidationError(f"Duplicate node ID detected: {subj.id}")
+                seen_ids.add(subj.id)
+                if not subj.title or not subj.title.strip():
+                    raise HierarchyValidationError(f"Subject {subj.id} has a blank title.")
 
-                for sub in top.subtopics:
-                    if sub.id in seen_ids:
-                        raise HierarchyValidationError(f"Duplicate node ID detected: {sub.id}")
-                    seen_ids.add(sub.id)
-                    if not sub.title or not sub.title.strip():
-                        raise HierarchyValidationError(f"Subtopic {sub.id} has a blank title.")
-                    if not sub.source_text or not sub.source_text.strip():
-                        raise HierarchyValidationError(f"Subtopic {sub.id} has empty source evidence.")
-                    if sub.source_page is not None and sub.source_page < 1:
-                        raise HierarchyValidationError(
-                            f"Subtopic {sub.id} has invalid non-positive page: {sub.source_page}"
-                        )
-                    leaf_count += 1
+                for mod in subj.modules:
+                    if mod.id in seen_ids:
+                        raise HierarchyValidationError(f"Duplicate node ID detected: {mod.id}")
+                    seen_ids.add(mod.id)
+                    if not mod.title or not mod.title.strip():
+                        raise HierarchyValidationError(f"Module {mod.id} has a blank title.")
+
+                    for top in mod.topics:
+                        if top.id in seen_ids:
+                            raise HierarchyValidationError(f"Duplicate node ID detected: {top.id}")
+                        seen_ids.add(top.id)
+                        if not top.title or not top.title.strip():
+                            raise HierarchyValidationError(f"Topic {top.id} has a blank title.")
+                        if not top.source_text or not top.source_text.strip():
+                            raise HierarchyValidationError(f"Topic {top.id} has empty source evidence.")
+                        if top.source_page is not None and top.source_page < 1:
+                            raise HierarchyValidationError(
+                                f"Topic {top.id} has invalid non-positive page: {top.source_page}"
+                            )
+                        leaf_count += 1
 
     if leaf_count == 0:
-        raise HierarchyValidationError("Syllabus contains zero leaf subtopics.")
+        raise HierarchyValidationError("Syllabus contains zero leaf topics.")

@@ -10,37 +10,84 @@ import type {
 } from '../types/syllabus';
 
 /**
+ * Helper to normalize subjects from a semester
+ */
+function getSubjects(sem: any): any[] {
+  if (sem.subjects && sem.subjects.length > 0) {
+    return sem.subjects;
+  }
+  if (sem.topics && sem.topics.length > 0) {
+    return sem.topics.map((t: any) => ({
+      id: `subj_${t.id}`,
+      title: t.title,
+      modules: [
+        {
+          id: t.id,
+          title: 'Module 1',
+          topics: t.subtopics || t.topics || [],
+        },
+      ],
+    }));
+  }
+  return [];
+}
+
+/**
  * Collect all leaf subtopic IDs for a given syllabus or sub-tree.
+ * Supports canonical 5-tier: Year -> Semester -> Subject -> Module -> Topic.
  */
 export function getDescendantLeafIds(
   syllabus: HierarchicalSyllabus,
   targetNodeId?: string
 ): string[] {
-  if (!targetNodeId || targetNodeId === syllabus.id) {
-    return syllabus.years.flatMap((yr) =>
-      yr.semesters.flatMap((sem) =>
-        sem.topics.flatMap((top) => top.subtopics.map((sub) => sub.id))
+  const getAllLeaves = (): string[] => {
+    return (syllabus.years || []).flatMap((yr) =>
+      (yr.semesters || []).flatMap((sem) =>
+        getSubjects(sem).flatMap((subj: any) =>
+          (subj.modules || []).flatMap((mod: any) =>
+            (mod.topics || []).map((top: any) => top.id)
+          )
+        )
       )
     );
+  };
+
+  if (!targetNodeId || targetNodeId === syllabus.id) {
+    return getAllLeaves();
   }
 
-  for (const yr of syllabus.years) {
+  for (const yr of syllabus.years || []) {
     if (yr.id === targetNodeId) {
-      return yr.semesters.flatMap((sem) =>
-        sem.topics.flatMap((top) => top.subtopics.map((sub) => sub.id))
+      return (yr.semesters || []).flatMap((sem) =>
+        getSubjects(sem).flatMap((subj: any) =>
+          (subj.modules || []).flatMap((mod: any) =>
+            (mod.topics || []).map((top: any) => top.id)
+          )
+        )
       );
     }
-    for (const sem of yr.semesters) {
+    for (const sem of yr.semesters || []) {
       if (sem.id === targetNodeId) {
-        return sem.topics.flatMap((top) => top.subtopics.map((sub) => sub.id));
+        return getSubjects(sem).flatMap((subj: any) =>
+          (subj.modules || []).flatMap((mod: any) =>
+            (mod.topics || []).map((top: any) => top.id)
+          )
+        );
       }
-      for (const top of sem.topics) {
-        if (top.id === targetNodeId) {
-          return top.subtopics.map((sub) => sub.id);
+      for (const subj of getSubjects(sem)) {
+        if (subj.id === targetNodeId) {
+          return (subj.modules || []).flatMap((mod: any) =>
+            (mod.topics || []).map((top: any) => top.id)
+          );
         }
-        for (const sub of top.subtopics) {
-          if (sub.id === targetNodeId) {
-            return [sub.id];
+        for (const mod of subj.modules || []) {
+          if (mod.id === targetNodeId) {
+            return (mod.topics || []).map((top: any) => top.id);
+          }
+          for (const top of mod.topics || []) {
+            if (top.id === targetNodeId) {
+              return [top.id];
+            }
           }
         }
       }
