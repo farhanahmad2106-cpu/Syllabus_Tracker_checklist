@@ -206,7 +206,7 @@ export const App: React.FC = () => {
           </div>
 
           {/* Independently Scrollable Document List */}
-          <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
             {uniqueSyllabi.length === 0 ? (
               <div className="p-4 text-center border border-dashed border-gray-800 rounded-xl space-y-2">
                 <BookOpen className="w-6 h-6 text-gray-600 mx-auto" />
@@ -287,7 +287,7 @@ export const App: React.FC = () => {
         </aside>
 
         {/* Content Area with Independent Scrolling */}
-        <main className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8 space-y-6">
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8 space-y-6 custom-scrollbar">
           {error && <ErrorMessage message={error} onDismiss={clearError} />}
 
           {isLoading ? (

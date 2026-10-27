@@ -54,7 +54,7 @@ export const SourceEvidence: React.FC<SourceEvidenceProps> = ({ subtopic }) => {
                   <FileText className="w-3.5 h-3.5 text-emerald-400" />
                   Verbatim Document Snippet
                 </span>
-                <div className="p-3 text-xs text-gray-200 bg-gray-950/90 border border-gray-800 rounded-xl font-mono leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto selection:bg-emerald-500/30">
+                <div className="p-3 text-xs text-gray-200 bg-gray-950/90 border border-gray-800 rounded-xl font-mono leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto selection:bg-emerald-500/30 custom-scrollbar">
                   {subtopic.source_text}
                 </div>
               </div>
