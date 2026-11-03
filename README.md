@@ -1,27 +1,31 @@
 # 📚 Hierarchical Syllabus Checklist & Progress Tracker
+## Production-Grade 5-Tier Curriculum Architecture, Deterministic Extraction, Elective Enrollment, Historical Progress Preservation, Contextual Lab Handling, Contact-Hour Metadata, and Hot-Switchable Dual-Provider AI Engine
 
-A privacy-focused, production-minded, local-first application that ingests academic syllabus documents (`.pdf`, `.docx`, `.doc`, `.txt`) into an interactive, multi-tiered curriculum checklist with automatic cascading completion, source evidence verification, and real-time progress analytics.
+A local-first, privacy-respecting, production-grade application that ingests academic syllabus documents (`.pdf`, `.docx`, `.doc`, `.txt`) into an interactive, five-tiered curriculum checklist with automatic cascading completion, source evidence verification, elective enrollment onboarding, and real-time progress analytics.
 
 ---
 
 ## 🌟 Key Features
 
-- **Multi-Format Ingestion**: Accepts academic syllabi in `.pdf`, `.docx`, `.doc`, and `.txt` formats with fast-path parsing (`pypdf`, `python-docx`) and headless LibreOffice conversion for legacy `.doc`.
-- **Strict 4-Tier Academic Hierarchy**:
-  $$\text{Degree/Program (Root Container)} \longrightarrow \text{Academic Year (Tier 1)} \longrightarrow \text{Semester (Tier 2)} \longrightarrow \text{Course/Topic/Unit (Tier 3)} \longrightarrow \text{Subtopic Leaf (Tier 4)}$$
-- **Grounded AI Extraction**: Uses local LLMs (via Ollama + Instructor) strictly bounded by prompt boundaries (`<untrusted_syllabus_content>`) to prevent hallucinations and invent zero curriculum.
-- **Evidence Traceability**: Every leaf subtopic preserves exact verbatim excerpts (`source_text`), 1-based physical page citations (`source_page`), and grounding status (`verified`, `needs_review`, `unverified`).
+- **Strict 5-Tier Canonical Academic Hierarchy**:
+  $$\text{Document Root (Container)} \longrightarrow \text{Academic Year (Tier 1)} \longrightarrow \text{Semester (Tier 2)} \longrightarrow \text{Subject / Course (Tier 3)} \longrightarrow \text{Module / Unit (Tier 4)} \longrightarrow \text{Subtopic Leaf (Tier 5)}$$
+- **Deterministic Multi-Format Ingestion**: Accepts academic syllabi in `.pdf`, `.docx`, `.doc`, and `.txt` formats with fast-path parsing (`pypdf`, `python-docx`), boilerplate noise removal (headers/footers/page numbers), and headless LibreOffice conversion for legacy `.doc`.
+- **Hot-Switchable Dual-Provider AI Engine**: Seamlessly switch between local **Ollama** (`llama3.1:8b`, `qwen2.5:7b`) and cloud **OpenAI-compatible** endpoints via `EXTRACTION_PROVIDER` with strict `<untrusted_syllabus_content>` prompt-injection defense.
+- **Elective Course Onboarding Workflow**:
+  - Interactive onboarding modal (`ElectiveOnboardingModal.tsx`) presented before final checklist generation.
+  - Mandatory courses are locked as enrolled and cannot be excluded.
+  - Excluded/pending electives are omitted from active checklist progress.
+  - **Historical Progress Preservation**: Completion records are preserved upon elective unenrollment and restored upon re-enrollment.
+- **Contextual Laboratory & Practical Course Handling**: Automatically detects labs (`is_lab: True`), displays `"Lab Course"` badge, initializes collapsed on tree load, and retains uniform completion weighting ($w = 1$).
+- **Module Contact-Hour Metadata**: Extracts declared module contact hours (`contact_hours: Optional[int]`) and renders informational badges without altering completion weighting.
+- **Evidence Traceability & Zero Hallucination**: Every leaf subtopic preserves exact verbatim excerpts (`source_text`), 1-based physical page citations (`source_page`), canonical document offsets (`[source_start_offset, source_end_offset]`), and grounding status (`verified`, `needs_review`).
 - **Cascading Tri-State Checkboxes**:
-  - `☑ Checked`: 100% of descendant subtopic leaves are completed.
-  - `◐ Indeterminate`: Some descendant leaves are completed.
-  - `☐ Unchecked`: 0 descendant leaves are completed.
-- **Leaf-Only Persistence**: Only valid Tier 4 leaf completion records are persisted in SQLite; all parent checkbox states and progress metrics are derived dynamically.
-- **Dynamic Multi-Level Analytics**: Real-time percentage and fractional tracking at Topic, Semester, Year, and overall Program levels.
-- **Windows 11 Reliability**:
-  - Lightweight parsing by default: avoids heavy PyTorch/Docling initialization to permanently eliminate `[WinError 1450]`.
-  - Scoped development file watcher (`--reload-dir backend/app`) preventing virtual environment or temporary file scan storms.
-  - Request timeouts, client-side abort controls, bounded concurrency semaphore, and atomic transactional rollback.
-- **100% Local & Private**: Operates entirely offline—no data ever leaves your host.
+  - `☑ Checked`: 100% of enrolled descendant subtopic leaves are completed.
+  - `◐ Indeterminate`: Some enrolled descendant leaves are completed.
+  - `☐ Unchecked`: 0 enrolled descendant leaves are completed (zero-leaf branches display 0/0 and 0%).
+- **Leaf-Only SQLite Persistence**: Only valid Tier 5 leaf completion IDs are persisted in SQLite; all parent checkbox states and progress percentages are derived dynamically bottom-up.
+- **Dynamic Multi-Level Analytics**: Real-time percentage and fractional tracking at Module, Subject, Semester, Year, and overall Program levels.
+- **Operational Health Endpoints**: `/health` (liveness probe with active provider and model diagnostics) and `/ready` (readiness probe verifying database connectivity without exposing secrets).
 
 ---
 
@@ -31,47 +35,57 @@ A privacy-focused, production-minded, local-first application that ingests acade
 [Uploaded Document: PDF / DOCX / DOC / TXT]
 │
 ▼
-┌────────────────────────────────────────────────────────┐
-│               LAYER 1: INGESTION SERVICE               │
-│  - Secure Temp Storage & Validation (50 MiB, 300 pgs)  │
-│  - Fast-Path Parsers: pypdf, python-docx, LibreOffice  │
-│  - Opt-in Docling Fallback (ENABLE_DOCLING_FALLBACK)   │
-└───────────────────────────┬────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                      LAYER 1: INGESTION SERVICE                        │
+│  - Secure Temp Storage & Validation (50 MiB, 1000 pgs)                 │
+│  - Fast-Path Parsers: pypdf, python-docx, LibreOffice                  │
+│  - Running Header/Footer Boilerplate Removal & Offset Tracking         │
+└───────────────────────────────────┬────────────────────────────────────┘
 │
 ▼
-┌────────────────────────────────────────────────────────┐
-│            LAYER 2: STRUCTURE REASONING                │
-│  - Instructor + Pydantic v2 Schema Validation          │
-│  - Local LLM via Ollama (llama3.1:8b / qwen2.5:7b)     │
-│  - Prompt-injection containment delimiters             │
-│  - Deterministic heuristic outline fallback parser     │
-└───────────────────────────┬────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                   LAYER 2: STRUCTURED REASONING                        │
+│  - Dual-Provider: Ollama (Local) OR OpenAI (Cloud) via Instructor      │
+│  - Prompt-Injection Delimiters (<untrusted_syllabus_content>)          │
+│  - Deterministic Rule-Based Fallback Parser (5 Canonical Tiers)        │
+└───────────────────────────────────┬────────────────────────────────────┘
 │
 ▼
-┌────────────────────────────────────────────────────────┐
-│             LAYER 3: CANONICAL HIERARCHY               │
-│  - Academic Year = (Semester + 1) // 2 inference       │
-│  - Grounding verification & stable ID generation       │
-│  - Subtopic evidence & physical page mapping           │
-└───────────────────────────┬────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                    LAYER 3: CANONICAL HIERARCHY                        │
+│  - Academic Year = ceil(Semester / 2) inference                        │
+│  - Contextual Lab Detection (is_lab) & Elective Detection              │
+│  - Module Contact-Hour Parsing & Grounding Verification                │
+└───────────────────────────────────┬────────────────────────────────────┘
 │
 ▼
-┌────────────────────────────────────────────────────────┐
-│          LAYER 4: CLIENT & PROGRESS ENGINE             │
-│  - SQLite persistence in WAL mode (foreign_keys = ON)  │
-│  - React 19 + TypeScript + Radix Tri-State Checkboxes  │
-│  - Dynamic bottom-up progress calculation              │
-│  - Leaf-only completion persistence & cascade deletion │
-└────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│               LAYER 4: ELECTIVE ONBOARDING & CLIENT                    │
+│  - Review Endpoint (GET /api/syllabus/{id}/review)                     │
+│  - Interactive Elective Confirmation Modal                             │
+│  - Atomic Finalization (POST /api/syllabus/{id}/finalize-enrollment)   │
+│  - Historical Completion Preservation on Re-Enrollment                 │
+└───────────────────────────────────┬────────────────────────────────────┘
+│
+▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                 LAYER 5: PROGRESS & PERSISTENCE                        │
+│  - SQLite in WAL Mode with Foreign Keys Enabled                        │
+│  - Leaf-Only Persistence (UNIQUE(syllabus_id, leaf_id))                │
+│  - Enrolled-Course Filtering in Tri-State Checkboxes                   │
+│  - Dynamic Bottom-Up Progress Derivation                               │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 🛠️ Tech Stack & Verified Configuration
 
-- **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0 / SQLite (WAL mode, foreign keys enabled), Pydantic v2, `pydantic-settings`
-- **Document Processing**: `pypdf`, `python-docx`, Headless LibreOffice (optional `.doc`), Docling (optional fallback)
-- **Local Structured LLM**: Instructor, Ollama (`llama3.1:8b` default, `qwen2.5:7b` fallback)
+- **Backend**: Python 3.12, FastAPI, SQLModel / SQLAlchemy 2.0, SQLite (WAL mode, foreign keys enabled), Pydantic v2, `pydantic-settings`
+- **Document Processing**: `pypdf`, `python-docx`, Headless LibreOffice (optional `.doc`), Docling (optional scanned fallback)
+- **AI Extraction Providers**:
+  - **Local**: Ollama via OpenAI-compatible endpoint (`llama3.1:8b`, `qwen2.5:7b`) with Instructor
+  - **Cloud**: OpenAI-compatible API (`gpt-4o-mini`, etc.) with Instructor
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, `@radix-ui/react-checkbox`, Lucide React
 - **Testing**: Pytest, pytest-asyncio, Vitest, React Testing Library
 
@@ -79,19 +93,18 @@ A privacy-focused, production-minded, local-first application that ingests acade
 
 | Parameter | Default Value | Notes |
 |---|---|---|
-| `MAX_UPLOAD_SIZE_BYTES` | `52428800` (50 MiB) | Enforced on client and server |
-| `MAX_PDF_PAGES` | `300` | Verified on PDF page count before parsing |
-| `MAX_EXTRACTED_TEXT_CHARS` | `1500000` | Bounded input reading |
-| `PARSER_TIMEOUT_SECONDS` | `300` | Maximum parser runtime limit |
-| `MAX_CONCURRENT_PARSING_JOBS` | `2` | Bounded concurrency semaphore |
-| `ENABLE_DOCLING_FALLBACK` | `False` | Opt-in to prevent PyTorch `WinError 1450` |
-| `DOC_CONVERSION_TIMEOUT_SECONDS`| `30` | Subprocess timeout for LibreOffice conversion |
+| `MAX_UPLOAD_SIZE_MB` | `50` (52,428,800 bytes) | Enforced on client and server |
+| `MAX_PDF_PAGES` | `1000` | Verified on PDF page count before parsing |
+| `MAX_EXTRACTED_TEXT_CHARS` | `1500000` | Bounded text extraction reading |
+| `EXTRACTION_TIMEOUT_SECONDS` | `180` | Extraction runtime limit |
+| `EXTRACTION_MAX_RETRIES` | `3` | Bounded LLM retry budget |
+| `ENABLE_DOCLING_FALLBACK` | `False` | Opt-in to prevent PyTorch memory exhaustion |
 
 ---
 
 ## ⚡ Global CLI Launcher (`syllabus`) [Recommended]
 
-Syllabus Tracker includes a **production-grade Windows 11 Global CLI** with automatic process supervision, Windows Job Object tree cleanup, and non-destructive port conflict management.
+Syllabus Tracker includes a **Windows Global CLI** with automatic process supervision, job tracking, and non-destructive port conflict management.
 
 ### Installation (One-Time Setup)
 
@@ -101,53 +114,50 @@ Run from PowerShell inside the repository:
 .\scripts\setup-global-cli.ps1
 ```
 
-This installs `syllabus` into `%USERPROFILE%\bin` and safely registers it in your **User PATH** without Administrator privileges.
+This registers `syllabus` in your User PATH without Administrator privileges.
 
-### Usage From Any Directory (CMD or PowerShell)
+### Usage From Any Directory
 
 ```powershell
 syllabus                     # Starts backend, frontend & Ollama, opens browser
 syllabus status              # Inspects health, process PIDs, and ports
 syllabus logs backend -f     # Follow backend Uvicorn logs live
-syllabus stop                # Cleanly terminates managed services from any terminal
+syllabus stop                # Cleanly terminates managed services
 syllabus restart             # Restarts managed services
 syllabus help                # Displays full options & configuration paths
 ```
-
-For full architecture details, configuration options, and uninstallation, see [scripts/README-launcher.md](scripts/README-launcher.md).
 
 ---
 
 ## 🚀 Manual Windows PowerShell Launch (Alternative)
 
 ### 1. Prerequisites
-- **Python 3.11+** (Python 3.12 installed in `backend/venv`)
+- **Python 3.11+** (virtual environment in `backend/venv`)
 - **Node.js (v18+) & npm**
-- **[Ollama](https://ollama.com/)** running locally:
+- **Ollama** running locally (if using `EXTRACTION_PROVIDER=ollama`):
   ```powershell
   ollama serve
   ollama pull llama3.1:8b
-  ollama pull qwen2.5:7b
   ```
-- *(Optional)* **LibreOffice** for legacy `.doc` files (ensure `soffice` is in PATH).
 
 ### 2. Launch Backend Server
-
-Run the dedicated PowerShell launcher from the project root:
 
 ```powershell
 # Development mode (reload watcher scoped strictly to backend/app):
 .\start-backend.ps1 -Mode Development
 
-# Stable mode (production/testing without file watcher overhead):
-.\start-backend.ps1 -Mode Stable
+# Or directly with Uvicorn:
+$env:PYTHONPATH="."
+.\backend\venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-The API health check will be live at [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health) and Swagger documentation at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+- API Health Check: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- API Readiness Check: [http://127.0.0.1:8000/ready](http://127.0.0.1:8000/ready)
+- Swagger Documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
 ### 3. Launch Frontend Client
 
-In a second PowerShell terminal:
+In a second terminal:
 
 ```powershell
 cd frontend
@@ -159,20 +169,24 @@ Navigate to [http://localhost:5173](http://localhost:5173).
 
 ---
 
-## 📋 API Endpoints Summary
+## 📋 Canonical API Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/health` | Application liveness, SQLite readiness, and Ollama diagnostics |
+| `GET` | `/health` / `/api/health` | Application liveness, database status, and active extraction provider diagnostics |
+| `GET` | `/ready` / `/api/ready` | Readiness check verifying active database ping (`SELECT 1`) |
 | `GET` | `/api/config` | Safe configuration metadata (allowed formats, upload limits) |
 | `GET` | `/api/syllabi` | List all saved syllabi and progress totals |
-| `POST` | `/api/upload` | Multipart upload returning 202 Accepted with `job_id` (supports `?sync=true`) |
-| `GET` | `/api/upload/progress/{id}` | Real-time Server-Sent Events (SSE) progress stream (0–100% with heartbeats) |
+| `POST` | `/api/upload` | Multipart upload returning 202 Accepted with `job_id` |
+| `GET` | `/api/upload/progress/{id}` | Real-time Server-Sent Events (SSE) progress stream (0–100%) |
 | `GET` | `/api/upload/jobs/{id}` | Polling fallback for upload job progress snapshot |
 | `POST` | `/api/upload/jobs/{id}/cancel` | Explicit cancellation of in-progress syllabus ingestion |
-| `GET` | `/api/syllabus/{id}` | Canonical hierarchy, completed leaves, and derived progress |
-| `PATCH` | `/api/syllabus/{id}/toggle-leaf` | Idempotently toggle a single subtopic leaf |
-| `PATCH` | `/api/syllabus/{id}/bulk-toggle` | Atomically toggle descendant leaves under any branch or explicit IDs |
+| `GET` | `/api/syllabus/{id}/review` | Pre-enrollment review returning detected electives and confirmation status |
+| `POST` | `/api/syllabus/{id}/finalize-enrollment` | Atomic idempotent confirmation of elective choices |
+| `POST` | `/api/syllabus/{id}/update-enrollment` | Dynamic reconfiguration of elective enrollment during semester cycles |
+| `GET` | `/api/syllabus/{id}` | Canonical 5-tier hierarchy, enrolled completed leaves, and derived progress |
+| `PATCH` | `/api/syllabus/{id}/toggle-leaf` | Idempotently toggle an individual subtopic leaf |
+| `PATCH` | `/api/syllabus/{id}/bulk-toggle` | Atomically toggle enrolled descendant leaves under any branch |
 | `PATCH` | `/api/syllabus/{id}` | Rename syllabus title |
 | `DELETE` | `/api/syllabus/{id}` | Atomically delete syllabus, nodes, and completion records |
 
@@ -180,30 +194,23 @@ Navigate to [http://localhost:5173](http://localhost:5173).
 
 ## 🧪 Automated Verification & Testing
 
-### Backend Test Suite
+### Backend Test Suite (Pytest)
 ```powershell
-.\backend\venv\Scripts\python -m pytest backend/tests -v
+$env:PYTHONPATH="."
+.\backend\venv\Scripts\python.exe -m pytest backend/tests -v
 ```
-*Current suite status: 60 passed in 1.98s.*
+**Result: 102 passed, 0 failed in 13.36s (100% pass rate).**
 
-### Frontend Test Suite & Typecheck
+### Frontend Test Suite (Vitest) & Build Check
 ```powershell
-npm --prefix frontend run test
-npm --prefix frontend run typecheck
-npm --prefix frontend run build
+cd frontend
+npm test -- --run
+npm run typecheck
+npm run build
 ```
-*Current suite status: 12 passed in 2.90s; clean production build in 1.80s.*
-
----
-
-## 🛠️ Windows 11 Troubleshooting
-
-- **`WinError 1450` (Insufficient system resources)**: Occurs when PyTorch/Docling vision models are loaded under broad directory file watchers. The application defaults to fast-path `pypdf` (~20ms) and sets `ENABLE_DOCLING_FALLBACK = False`.
-- **Port 8000 in use**: The `start-backend.ps1` script performs non-destructive port conflict checks via `Get-NetTCPConnection` to inform you without terminating other processes.
-- **Ollama Offline**: The application remains fully functional offline without Ollama; previously saved syllabi, progress calculations, and deterministic outline extractions operate normally.
+**Result: 26 passed across 5 test files in 7.10s; 0 TypeScript errors; clean production build in 1.92s.**
 
 ---
 
 ## 📄 License
 This project is licensed under the MIT License.
-
