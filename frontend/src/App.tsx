@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { ConfirmDelete } from './components/ConfirmDelete';
+import { ElectiveOnboardingModal } from './components/ElectiveOnboardingModal';
 import { EmptyState } from './components/EmptyState';
 import { ErrorMessage } from './components/ErrorMessage';
 import { FileUpload } from './components/FileUpload';
@@ -39,6 +40,11 @@ export const App: React.FC = () => {
     handleToggleBranch,
     handleRename,
     handleDelete,
+    reviewData,
+    showElectiveModal,
+    openElectiveModal,
+    closeElectiveModal,
+    handleFinalizeEnrollment,
   } = useSyllabus();
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -360,6 +366,15 @@ export const App: React.FC = () => {
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
+                      onClick={() => openElectiveModal(activeSyllabus.syllabus.id)}
+                      className="px-3 py-1.5 text-xs text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/50 border border-indigo-900/60 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                      title="Manage elective course enrollment"
+                    >
+                      <GraduationCap className="w-3.5 h-3.5" />
+                      <span>Configure Electives</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setDeletingId(activeSyllabus.syllabus.id)}
                       className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-950/50 border border-red-900/60 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
@@ -470,6 +485,21 @@ export const App: React.FC = () => {
           }
         }}
       />
+
+      {/* Elective Enrollment Onboarding Modal */}
+      {showElectiveModal && reviewData && (
+        <ElectiveOnboardingModal
+          isOpen={showElectiveModal}
+          syllabusId={reviewData.syllabus_id}
+          syllabusTitle={reviewData.title}
+          detectedElectives={reviewData.detected_electives}
+          electiveGroups={reviewData.elective_groups}
+          warnings={reviewData.extraction_warnings}
+          onConfirm={handleFinalizeEnrollment}
+          onClose={closeElectiveModal}
+          isSubmitting={isMutating}
+        />
+      )}
     </div>
   );
 };

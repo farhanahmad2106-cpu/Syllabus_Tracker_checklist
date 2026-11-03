@@ -263,20 +263,32 @@ def process_ingestion_job(
                 warnings=warnings,
             )
 
-        # Stage: completed (100%)
+        # Stage: completed (100%) or awaiting_enrollment
         duration = time.time() - start_time
         logger.info(
-            "ingestion_job.completed job_id=%s syllabus_id=%s duration=%.2fs leaves=%d",
+            "ingestion_job.completed job_id=%s syllabus_id=%s duration=%.2fs leaves=%d electives_pending=%s",
             job_id,
             canonical_syllabus.id,
             duration,
             prog.total_leaves,
+            canonical_syllabus.requires_enrollment_confirmation,
         )
-        job_manager.mark_completed(
+        final_stage = "awaiting_enrollment" if canonical_syllabus.requires_enrollment_confirmation else "completed"
+        final_msg = (
+            f"Curriculum extracted. Elective confirmation required for '{canonical_syllabus.title}'."
+            if canonical_syllabus.requires_enrollment_confirmation
+            else f"Syllabus '{canonical_syllabus.title}' processed successfully in {duration:.1f}s."
+        )
+
+        job_manager.update(
             job_id=job_id,
+            stage=final_stage,
+            percent=100,
+            syllabus_id=canonical_syllabus.id,
+            message=final_msg,
             result=response.model_dump(),
-            message=f"Syllabus '{canonical_syllabus.title}' processed successfully in {duration:.1f}s.",
         )
+        job_manager._cleanup_staging(job_id)
 
     except Exception as exc:
         if job_manager.is_cancel_requested(job_id):

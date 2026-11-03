@@ -75,11 +75,12 @@ def _create_synthetic_multipage_pdf() -> bytes:
             page = PageObject.create_blank_page(width=612, height=792)
             page[NameObject("/Resources")] = resources
 
-            stream_lines = ["BT", "/F1 12 Tf", "50 750 Td"]
+            stream_lines = ["BT", "/F1 12 Tf", "14 TL", "50 750 Td"]
             for line in text_content.split("\n"):
                 sanitized = line.replace("(", "").replace(")", "").replace("\\", "")
                 if sanitized.strip():
-                    stream_lines.append(f"({sanitized}) '")
+                    stream_lines.append(f"({sanitized}) Tj")
+                    stream_lines.append("T*")
             stream_lines.append("ET")
 
             stream_obj = DecodedStreamObject()

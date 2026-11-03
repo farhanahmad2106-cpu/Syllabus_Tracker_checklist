@@ -251,3 +251,126 @@ def test_five_level_hierarchy_descendant_traversal():
     assert node_prog["yr_1"].completed_leaves == 2
     assert node_prog["yr_1"].progress_percent == 50.0
 
+
+def test_excluded_electives_omitted_from_progress_and_checkbox():
+    """Verify that excluded electives never contribute to progress or parent checkbox states."""
+    from backend.app.schemas import (
+        AcademicYear,
+        HierarchicalSyllabus,
+        Module,
+        Semester,
+        Subject,
+        Subtopic,
+    )
+    from backend.app.progress import get_enrolled_leaf_ids
+
+    subj_mandatory = Subject(
+        id="subj_mand",
+        title="Mandatory Math",
+        is_elective=False,
+        is_enrolled=True,
+        enrollment_status="mandatory",
+        modules=[
+            Module(
+                id="mod_m",
+                title="Unit 1",
+                topics=[Subtopic(id="leaf_m1", title="Calculus", source_text="Calculus")],
+            )
+        ],
+    )
+
+    subj_excluded = Subject(
+        id="subj_excl",
+        title="Excluded Elective",
+        is_elective=True,
+        is_enrolled=False,
+        enrollment_status="excluded",
+        modules=[
+            Module(
+                id="mod_e",
+                title="Unit 1",
+                topics=[Subtopic(id="leaf_e1", title="Astronomy", source_text="Astronomy")],
+            )
+        ],
+    )
+
+    sem = Semester(
+        id="sem_1",
+        title="Semester 1",
+        subjects=[subj_mandatory, subj_excluded],
+    )
+    yr = AcademicYear(id="yr_1", title="Year 1", semesters=[sem])
+    syl = HierarchicalSyllabus(
+        id="syl_electives",
+        title="Degree Program",
+        source_filename="program.pdf",
+        years=[yr],
+    )
+
+    # 1. get_enrolled_leaf_ids should return ONLY leaf_m1
+    enrolled = get_enrolled_leaf_ids(syl)
+    assert enrolled == ["leaf_m1"]
+
+    # 2. Even if leaf_e1 is marked in completed_ids, it does NOT contribute to progress
+    prog, node_prog = calculate_syllabus_progress(syl, {"leaf_e1"})
+    assert prog.total_leaves == 1  # Only leaf_m1
+    assert prog.completed_leaves == 0
+    assert prog.progress_percent == 0.0
+
+    # 3. Complete leaf_m1
+    prog_done, node_prog_done = calculate_syllabus_progress(syl, {"leaf_m1"})
+    assert prog_done.total_leaves == 1
+    assert prog_done.completed_leaves == 1
+    assert prog_done.progress_percent == 100.0
+    assert node_prog_done["sem_1"].progress_percent == 100.0
+
+    # 4. Parent checkbox state on sem_1 with leaf_m1 completed is "checked" (not indeterminate)
+    descendant = get_node_descendant_leaf_ids(syl, "sem_1")
+    assert descendant == ["leaf_m1"]
+    assert derive_checkbox_state(descendant, {"leaf_m1"}) == "checked"
+
+
+def test_labs_included_with_uniform_weight():
+    """Verify lab courses are included normally with 1 unit weight per leaf."""
+    from backend.app.schemas import (
+        AcademicYear,
+        HierarchicalSyllabus,
+        Module,
+        Semester,
+        Subject,
+        Subtopic,
+    )
+
+    subj_lab = Subject(
+        id="subj_lab",
+        title="Physics Lab",
+        is_lab=True,
+        is_elective=False,
+        is_enrolled=True,
+        enrollment_status="mandatory",
+        modules=[
+            Module(
+                id="mod_lab",
+                title="Experiments",
+                contact_hours=30,  # 30 contact hours metadata
+                topics=[
+                    Subtopic(id="leaf_l1", title="Optics Lab", source_text="Optics"),
+                    Subtopic(id="leaf_l2", title="Circuits Lab", source_text="Circuits"),
+                ],
+            )
+        ],
+    )
+    syl = HierarchicalSyllabus(
+        id="syl_lab",
+        title="Physics Degree",
+        source_filename="physics.pdf",
+        years=[AcademicYear(id="y1", title="Y1", semesters=[Semester(id="s1", title="S1", subjects=[subj_lab])])],
+    )
+
+    prog, _ = calculate_syllabus_progress(syl, {"leaf_l1"})
+    # Exactly 1 of 2 leaves completed -> 50% (contact hours do not modify weighting!)
+    assert prog.total_leaves == 2
+    assert prog.completed_leaves == 1
+    assert prog.progress_percent == 50.0
+
+

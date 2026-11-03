@@ -18,17 +18,22 @@ logger = logging.getLogger(__name__)
 VALID_STAGES: Set[str] = {
     "queued",
     "validating",
+    "extracting_text",
     "parsing",
+    "cleaning",
     "chunking",
     "extracting",
+    "extracting_curriculum",
     "validating_result",
+    "merging",
     "persisting",
+    "awaiting_enrollment",
     "completed",
     "failed",
     "cancelled",
 }
 
-TERMINAL_STAGES: Set[str] = {"completed", "failed", "cancelled"}
+TERMINAL_STAGES: Set[str] = {"completed", "failed", "cancelled", "awaiting_enrollment"}
 
 
 class JobProgress(BaseModel):
@@ -37,6 +42,7 @@ class JobProgress(BaseModel):
     stage: str = "queued"
     percent: int = Field(default=0, ge=0, le=100)
     message: str = "Waiting for processing."
+    syllabus_id: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     created_at: float = Field(default_factory=time.time)
@@ -103,6 +109,7 @@ class JobManager:
         stage: Optional[str] = None,
         percent: Optional[int] = None,
         message: Optional[str] = None,
+        syllabus_id: Optional[str] = None,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> Optional[JobProgress]:
@@ -145,8 +152,16 @@ class JobManager:
             if message is not None:
                 job.message = message
 
+            if syllabus_id is not None:
+                job.syllabus_id = syllabus_id
+
             if result is not None:
                 job.result = result
+                if not job.syllabus_id:
+                    if isinstance(result, dict) and "syllabus" in result and isinstance(result["syllabus"], dict):
+                        job.syllabus_id = result["syllabus"].get("id")
+                    elif isinstance(result, dict) and "syllabus_id" in result:
+                        job.syllabus_id = result.get("syllabus_id")
 
             if error is not None:
                 job.error = error

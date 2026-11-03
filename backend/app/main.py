@@ -13,14 +13,17 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.database import (
     delete_syllabus,
+    finalize_syllabus_enrollment,
     get_completed_leaf_ids,
     get_db,
     get_syllabus_record,
+    get_syllabus_review,
     init_db,
     list_syllabi_summaries,
     update_bulk_completion,
@@ -37,7 +40,11 @@ from backend.app.exceptions import (
     SyllabusNotFoundError,
     SyllabusTrackerError,
 )
-from backend.app.extractor import check_ollama_status, get_preferred_model
+from backend.app.extractor import (
+    check_ollama_status,
+    check_provider_status,
+    get_preferred_model,
+)
 from backend.app.progress import (
     calculate_syllabus_progress,
     determine_bulk_toggle_action,
@@ -47,9 +54,11 @@ from backend.app.progress import (
 from backend.app.schemas import (
     AppConfigResponse,
     BulkToggleRequest,
+    FinalizeEnrollmentRequest,
     HierarchicalSyllabus,
     JobProgressResponse,
     LeafToggleRequest,
+    ParseReviewResponse,
     StartUploadResponse,
     SyllabusRenameRequest,
     SyllabusResponse,
@@ -155,22 +164,58 @@ async def extraction_error_handler(request, exc: ExtractionError):
 
 # --- API Routes ---
 
+# --- Operational & Health Routes ---
+
+@app.get("/health")
 @app.get("/api/health")
 def get_health() -> Dict[str, Any]:
-    """Lightweight application health check returning DB and Ollama model diagnostics."""
-    is_ollama_up, available_models, ollama_msg = check_ollama_status()
-    preferred_model = get_preferred_model(available_models) if is_ollama_up else None
+    """Lightweight application health check returning DB and extraction provider diagnostics."""
+    is_prov_up, prov_name, prov_msg, available_models = check_provider_status()
+    is_ollama_up, ollama_models, ollama_msg = check_ollama_status()
+    preferred_model = get_preferred_model(ollama_models) if is_ollama_up else None
 
     return {
         "status": "healthy",
         "database": "connected",
+        "active_provider": prov_name,
+        "provider_status": {
+            "is_reachable": is_prov_up,
+            "message": prov_msg,
+        },
         "ollama": {
             "is_reachable": is_ollama_up,
             "message": ollama_msg,
             "configured_model": settings.OLLAMA_MODEL,
             "configured_fallback": settings.OLLAMA_FALLBACK_MODEL,
             "resolved_model": preferred_model,
-            "available_models": available_models,
+            "available_models": ollama_models,
+        },
+    }
+
+
+@app.get("/ready")
+@app.get("/api/ready")
+def get_ready(session: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Readiness check verifying database connectivity and configuration without exposing secrets."""
+    try:
+        session.execute(text("SELECT 1"))
+        db_ready = True
+    except Exception as e:
+        logger.error("Readiness check database failure: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connectivity unavailable.",
+        )
+
+    is_prov_up, prov_name, prov_msg, _ = check_provider_status()
+
+    return {
+        "status": "ready" if db_ready else "not_ready",
+        "database_connected": db_ready,
+        "provider": {
+            "name": prov_name,
+            "is_reachable": is_prov_up,
+            "message": prov_msg,
         },
     }
 
@@ -178,25 +223,36 @@ def get_health() -> Dict[str, Any]:
 @app.get("/api/config", response_model=AppConfigResponse)
 def get_app_config() -> AppConfigResponse:
     """Return safe frontend configuration metadata without exposing secrets."""
-    is_ollama_up, available_models, _ = check_ollama_status()
-    preferred_model = get_preferred_model(available_models) if is_ollama_up else None
+    is_prov_up, prov_name, _, prov_models = check_provider_status()
+    is_ollama_up, ollama_models, _ = check_ollama_status()
+    active_model = (
+        settings.OPENAI_MODEL
+        if prov_name == "openai"
+        else (get_preferred_model(ollama_models) if is_ollama_up else None)
+    )
+
+    configured_model = (
+        settings.OPENAI_MODEL if settings.EXTRACTION_PROVIDER == "openai" else settings.OLLAMA_MODEL
+    )
 
     return AppConfigResponse(
         max_upload_size_bytes=settings.MAX_UPLOAD_SIZE_BYTES,
         max_upload_size_mib=settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024),
         allowed_extensions=[".pdf", ".docx", ".doc", ".txt"],
-        active_provider="local_ollama",
-        configured_model=settings.OLLAMA_MODEL,
-        active_model=preferred_model,
+        active_provider=settings.EXTRACTION_PROVIDER,
+        configured_model=configured_model,
+        active_model=active_model,
         ollama_connected=is_ollama_up,
         features={
             "legacy_doc_conversion": True,
             "evidence_grounding": True,
             "tri_state_checkboxes": True,
             "leaf_only_persistence": True,
+            "dual_provider_extraction": True,
+            "elective_onboarding": True,
         },
-        app_version="1.0.0",
-        schema_version=1,
+        app_version="2.0.0",
+        schema_version=2,
     )
 
 
@@ -349,17 +405,28 @@ async def upload_syllabus(
 async def stream_upload_progress(job_id: str, request: Request):
     """
     Server-Sent Events (SSE) endpoint emitting real-time progress updates for an ingestion job.
-    Framing:
-      id: {monotonic_id}
-      event: progress
-      data: {json}
-    Periodically emits ': keep-alive\n\n' heartbeats. Closes on terminal states or client disconnection.
+    If requested with Accept: application/json without text/event-stream, returns the JSON progress snapshot.
     """
     job = job_manager.get(job_id)
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Upload job '{job_id}' not found.",
+        )
+
+    accept = request.headers.get("accept", "")
+    if "text/event-stream" not in accept and "application/json" in accept:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=JobProgressResponse(
+                job_id=job.job_id,
+                stage=job.stage,
+                percent=job.percent,
+                message=job.message,
+                syllabus_id=job.syllabus_id,
+                result=job.result,
+                error=job.error,
+            ).model_dump(),
         )
 
     queue = job_manager.subscribe(job_id)
@@ -429,6 +496,7 @@ def get_upload_job_status(job_id: str):
         stage=job.stage,
         percent=job.percent,
         message=job.message,
+        syllabus_id=job.syllabus_id,
         result=job.result,
         error=job.error,
     )
@@ -455,6 +523,58 @@ def cancel_upload_job(job_id: str):
         "status": "cancellation_requested",
         "success": success,
     }
+
+
+@app.get("/api/syllabus/{syllabus_id}/review", response_model=ParseReviewResponse)
+def get_syllabus_review_endpoint(syllabus_id: str, session: Session = Depends(get_db)):
+    """Retrieve draft curriculum and detected elective courses for onboarding confirmation."""
+    return get_syllabus_review(session, syllabus_id)
+
+
+@app.post("/api/syllabus/{syllabus_id}/finalize-enrollment", response_model=SyllabusResponse)
+def finalize_enrollment_endpoint(
+    syllabus_id: str,
+    payload: FinalizeEnrollmentRequest,
+    session: Session = Depends(get_db),
+):
+    """
+    Atomically commit student elective course enrollment selections.
+    Validates subject IDs and elective groups, preserves leaf completion records,
+    and returns the finalized active hierarchy.
+    """
+    try:
+        updated_syllabus = finalize_syllabus_enrollment(
+            session=session,
+            syllabus_id=syllabus_id,
+            enrolled_subject_ids=payload.enrolled_subject_ids,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    rec = get_syllabus_record(session, syllabus_id)
+    warnings = json.loads(rec.warnings_json) if rec and rec.warnings_json else []
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+    prog, node_prog = calculate_syllabus_progress(updated_syllabus, completed_ids)
+
+    return SyllabusResponse(
+        syllabus=updated_syllabus,
+        completed_leaf_ids=list(completed_ids),
+        progress=prog,
+        node_progress=node_prog,
+        warnings=warnings,
+    )
+
+
+@app.post("/api/syllabus/{syllabus_id}/update-enrollment", response_model=SyllabusResponse)
+def update_enrollment_endpoint(
+    syllabus_id: str,
+    payload: FinalizeEnrollmentRequest,
+    session: Session = Depends(get_db),
+):
+    """Update elective enrollment after initial finalization without losing completed progress."""
+    return finalize_enrollment_endpoint(syllabus_id, payload, session)
 
 
 @app.get("/api/syllabus/{syllabus_id}", response_model=SyllabusResponse)
@@ -494,12 +614,14 @@ def toggle_leaf(
     syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
     warnings = json.loads(rec.warnings_json) if rec.warnings_json else []
 
+    target_completed = payload.target_completed
+
     try:
         completed_ids = update_leaf_completion(
             session=session,
             syllabus=syllabus,
             leaf_id=payload.leaf_id,
-            is_completed=payload.is_completed,
+            is_completed=target_completed,
         )
         session.commit()
     except Exception:
@@ -525,7 +647,7 @@ def toggle_branch(
 ):
     """
     Atomically update completion status for all descendant leaves of any node
-    (academic year, semester, topic, or whole syllabus).
+    (academic year, semester, subject, module, or whole syllabus).
     """
     rec = get_syllabus_record(session, syllabus_id)
     if not rec:
@@ -534,9 +656,11 @@ def toggle_branch(
     syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
     warnings = json.loads(rec.warnings_json) if rec.warnings_json else []
 
+    explicit_target = payload.target_completed
+
     if payload.leaf_ids is not None:
         target_set = set(payload.leaf_ids)
-        is_completed = payload.is_completed
+        is_completed = explicit_target
     elif payload.node_id is not None:
         if not node_exists_in_syllabus(syllabus, payload.node_id):
             raise InvalidNodeError(payload.node_id)
@@ -544,7 +668,7 @@ def toggle_branch(
         target_set, is_completed = determine_bulk_toggle_action(
             descendant_leaf_ids=descendant_leaves,
             current_completed_ids=get_completed_leaf_ids(session, syllabus_id),
-            explicit_target_state=payload.is_completed,
+            explicit_target_state=explicit_target,
         )
     else:
         raise HTTPException(

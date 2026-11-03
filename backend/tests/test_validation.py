@@ -121,3 +121,41 @@ def test_canonicalize_empty_curriculum_raises_error():
             source_document_text="",
             syllabus_id="syl_empty",
         )
+
+
+def test_source_offsets_calculation():
+    """Verify find_source_offsets returns exact start and end char indices."""
+    from backend.app.validation import find_source_offsets
+
+    doc = "Welcome to Computer Science.\nUnit 1: Data Structures and Algorithms.\nRecursion and Sorting."
+    start, end = find_source_offsets("Data Structures", doc)
+    assert start is not None and end is not None
+    assert doc[start:end] == "Data Structures"
+
+    # Not found returns (None, None)
+    assert find_source_offsets("Non-existent concept", doc) == (None, None)
+
+
+def test_contextual_lab_and_elective_detection():
+    """Verify heuristic contextual detection for labs and electives."""
+    from backend.app.validation import detect_lab_course, detect_elective_course
+
+    # Labs
+    assert detect_lab_course("Compiler Design Laboratory", "CS501") is True
+    assert detect_lab_course("Hardware Workshop", "CS102") is True
+    assert detect_lab_course("Advanced Programming", "CS201L") is True
+    assert detect_lab_course("Operating Systems", "CS301") is False
+
+    # Electives
+    is_elec, grp = detect_elective_course("Professional Elective I: Cloud Computing")
+    assert is_elec is True
+    assert grp == "Elective I"
+
+    is_elec2, grp2 = detect_elective_course("Open Elective: Cyber Security")
+    assert is_elec2 is True
+    assert "Elective" in grp2
+
+    is_elec3, grp3 = detect_elective_course("Data Structures & Algorithms")
+    assert is_elec3 is False
+    assert grp3 is None
+

@@ -1,6 +1,18 @@
-"""Pure progress calculation and cascading checklist engine."""
+"""Pure progress calculation and cascading checklist engine.
 
-from typing import Dict, List, Literal, Set, Tuple
+Guarantees:
+- Single source of truth for progress metrics across all 5 canonical academic tiers.
+- Leaf-only completion: only Tier 5 Subtopics can be checked off.
+- Parent progress percentages and checkbox states are strictly derived.
+- Progress is calculated exclusively from enrolled descendant leaves.
+- Excluded electives (is_enrolled=False or enrollment_status='excluded'/'pending')
+  do not contribute to total or completed leaf counts or parent checkbox states.
+- Lab/practical courses contribute uniformly (weight=1 per enrolled leaf).
+- Contact hours are display-only metadata and do not alter completion weighting.
+- Empty branches evaluate to 0/0 (0.0%).
+"""
+
+from typing import Dict, List, Literal, Optional, Set, Tuple
 from backend.app.schemas import (
     AcademicYear,
     HierarchicalSyllabus,
@@ -13,6 +25,21 @@ from backend.app.schemas import (
 )
 
 CheckboxState = Literal["checked", "unchecked", "indeterminate"]
+
+
+def is_subject_enrolled(subject: Subject) -> bool:
+    """
+    Determine if a subject is currently enrolled.
+    Mandatory courses default to enrolled.
+    Electives are enrolled only when explicitly selected.
+    Pending and excluded electives are not enrolled.
+    """
+    if hasattr(subject, "enrollment_status") and subject.enrollment_status is not None:
+        if subject.enrollment_status in ("excluded", "pending"):
+            return False
+        if subject.enrollment_status in ("mandatory", "selected"):
+            return True
+    return getattr(subject, "is_enrolled", True)
 
 
 def compute_progress_summary(completed: int, total: int) -> ProgressSummary:
@@ -33,25 +60,41 @@ def compute_progress_summary(completed: int, total: int) -> ProgressSummary:
     )
 
 
-def get_all_leaf_ids(syllabus: HierarchicalSyllabus) -> List[str]:
-    """Return all leaf subtopic/topic IDs in document order without duplicates."""
+def get_all_leaf_ids(syllabus: HierarchicalSyllabus, enrolled_only: bool = False) -> List[str]:
+    """
+    Return all leaf subtopic/topic IDs in document order without duplicates.
+    If enrolled_only=True, skips subjects that are excluded or pending.
+    """
     leaf_ids: List[str] = []
     for yr in syllabus.years:
         for sem in yr.semesters:
             for subj in sem.subjects:
+                if enrolled_only and not is_subject_enrolled(subj):
+                    continue
                 for mod in subj.modules:
                     for top in mod.topics:
                         leaf_ids.append(top.id)
     return list(dict.fromkeys(leaf_ids))
 
 
+def get_enrolled_leaf_ids(syllabus: HierarchicalSyllabus) -> List[str]:
+    """Convenience helper to retrieve only currently enrolled leaf subtopic IDs."""
+    return get_all_leaf_ids(syllabus, enrolled_only=True)
+
+
 def get_node_descendant_leaf_ids(
-    syllabus: HierarchicalSyllabus, node_id: str
+    syllabus: HierarchicalSyllabus,
+    node_id: str,
+    enrolled_only: bool = True,
 ) -> List[str]:
-    """Find all descendant leaf topic IDs for any node ID (syllabus, year, semester, subject, module, or topic leaf)."""
-    # 1. If node is root syllabus ID
+    """
+    Find all descendant leaf topic IDs for any node ID across all 5 tiers.
+    If enrolled_only=True, excludes leaves from non-enrolled subjects unless
+    the target node itself is an excluded subject/module.
+    """
+    # 1. Root level
     if node_id == syllabus.id:
-        return get_all_leaf_ids(syllabus)
+        return get_all_leaf_ids(syllabus, enrolled_only=enrolled_only)
 
     # 2. Year level
     for yr in syllabus.years:
@@ -59,6 +102,8 @@ def get_node_descendant_leaf_ids(
             leaves: List[str] = []
             for sem in yr.semesters:
                 for subj in sem.subjects:
+                    if enrolled_only and not is_subject_enrolled(subj):
+                        continue
                     for mod in subj.modules:
                         for top in mod.topics:
                             leaves.append(top.id)
@@ -69,6 +114,8 @@ def get_node_descendant_leaf_ids(
             if sem.id == node_id:
                 leaves = []
                 for subj in sem.subjects:
+                    if enrolled_only and not is_subject_enrolled(subj):
+                        continue
                     for mod in subj.modules:
                         for top in mod.topics:
                             leaves.append(top.id)
@@ -131,9 +178,15 @@ def is_leaf_id(syllabus: HierarchicalSyllabus, leaf_id: str) -> bool:
 
 
 def derive_checkbox_state(
-    descendant_leaf_ids: List[str], completed_leaf_ids: Set[str]
+    descendant_leaf_ids: List[str],
+    completed_leaf_ids: Set[str],
 ) -> CheckboxState:
-    """Derive checked, unchecked, or indeterminate state from descendant leaves."""
+    """
+    Derive checked, unchecked, or indeterminate state from enrolled descendant leaves.
+    - checked: all enrolled descendant leaves are complete (and > 0).
+    - indeterminate: at least one enrolled descendant leaf is complete, but not all.
+    - unchecked: zero enrolled descendant leaves are complete (or empty branch).
+    """
     if not descendant_leaf_ids:
         return "unchecked"
 
@@ -151,12 +204,16 @@ def calculate_syllabus_progress(
     syllabus: HierarchicalSyllabus,
     completed_leaf_ids: Set[str],
 ) -> Tuple[ProgressSummary, Dict[str, ProgressSummary]]:
-    """Compute overall progress and per-node progress for every level in the syllabus."""
+    """
+    Compute authoritative overall progress and per-node progress for every level in the syllabus.
+    Strictly calculates progress only from enrolled subjects.
+    Excluded/pending electives do not contribute to leaf counts or parent progress.
+    """
     node_progress: Dict[str, ProgressSummary] = {}
 
-    all_leaves = get_all_leaf_ids(syllabus)
-    total_completed = sum(1 for lid in all_leaves if lid in completed_leaf_ids)
-    global_progress = compute_progress_summary(total_completed, len(all_leaves))
+    all_enrolled_leaves = get_enrolled_leaf_ids(syllabus)
+    total_completed = sum(1 for lid in all_enrolled_leaves if lid in completed_leaf_ids)
+    global_progress = compute_progress_summary(total_completed, len(all_enrolled_leaves))
     node_progress[syllabus.id] = global_progress
 
     for yr in syllabus.years:
@@ -164,6 +221,7 @@ def calculate_syllabus_progress(
         for sem in yr.semesters:
             sem_leaves: List[str] = []
             for subj in sem.subjects:
+                subj_enrolled = is_subject_enrolled(subj)
                 subj_leaves: List[str] = []
                 for mod in subj.modules:
                     mod_leaves = [top.id for top in mod.topics]
@@ -180,7 +238,10 @@ def calculate_syllabus_progress(
                 subj_completed = sum(1 for lid in subj_leaves if lid in completed_leaf_ids)
                 subj_prog = compute_progress_summary(subj_completed, len(subj_leaves))
                 node_progress[subj.id] = subj_prog
-                sem_leaves.extend(subj_leaves)
+
+                # Only enrolled subjects contribute to semester, year, and global progress
+                if subj_enrolled:
+                    sem_leaves.extend(subj_leaves)
 
             sem_completed = sum(1 for lid in sem_leaves if lid in completed_leaf_ids)
             sem_prog = compute_progress_summary(sem_completed, len(sem_leaves))
@@ -197,13 +258,14 @@ def calculate_syllabus_progress(
 def determine_bulk_toggle_action(
     descendant_leaf_ids: List[str],
     current_completed_ids: Set[str],
-    explicit_target_state: bool | None = None,
+    explicit_target_state: Optional[bool] = None,
 ) -> Tuple[Set[str], bool]:
     """
     Determine target leaves and desired completed status.
     If explicit_target_state is provided, use it.
-    Otherwise, if all descendant leaves are completed, uncheck all (is_completed=False).
-    If not all completed, check all (is_completed=True).
+    Otherwise:
+    - If unchecked or indeterminate -> check all (is_completed=True).
+    - If checked -> clear all (is_completed=False).
     """
     target_set = set(descendant_leaf_ids)
     if explicit_target_state is not None:
@@ -213,5 +275,4 @@ def determine_bulk_toggle_action(
         return set(), False
 
     all_completed = target_set.issubset(current_completed_ids)
-    # If all are completed, toggle to incomplete; otherwise toggle to complete
     return target_set, not all_completed

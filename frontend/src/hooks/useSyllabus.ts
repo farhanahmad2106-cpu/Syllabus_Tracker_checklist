@@ -2,15 +2,24 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   deleteSyllabus,
   fetchHealth,
+  fetchParseReview,
   fetchSyllabiList,
   fetchSyllabus,
+  finalizeEnrollment,
   renameSyllabus,
   toggleBranch,
   toggleLeaf,
   uploadSyllabusFile,
 } from '../lib/api';
+import {
+  getDescendantLeafIds,
+  getProgressSummary,
+  toggleBranchCompletion,
+  toggleLeafCompletion,
+} from '../lib/progress';
 import type {
   HealthResponse,
+  ParseReviewResponse,
   SyllabusResponse,
   SyllabusSummary,
   UploadProgress,
@@ -24,6 +33,10 @@ export function useSyllabus() {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isMutating, setIsMutating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Elective confirmation workflow state
+  const [reviewData, setReviewData] = useState<ParseReviewResponse | null>(null);
+  const [showElectiveModal, setShowElectiveModal] = useState<boolean>(false);
 
   const refreshList = useCallback(async () => {
     try {
@@ -75,6 +88,41 @@ export function useSyllabus() {
     }
   }, [activeUploadController]);
 
+  const openElectiveModalForSyllabus = useCallback(async (targetSyllabusId?: string) => {
+    const sId = targetSyllabusId || activeSyllabus?.syllabus.id;
+    if (!sId) return;
+    try {
+      const review = await fetchParseReview(sId);
+      setReviewData(review);
+      setShowElectiveModal(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retrieve elective choices');
+    }
+  }, [activeSyllabus]);
+
+  const closeElectiveModal = useCallback(() => {
+    setShowElectiveModal(false);
+    setReviewData(null);
+  }, []);
+
+  const handleFinalizeEnrollment = useCallback(async (enrolledSubjectIds: string[]) => {
+    const sId = reviewData?.syllabus_id || activeSyllabus?.syllabus.id;
+    if (!sId) return;
+    setIsMutating(true);
+    try {
+      const updated = await finalizeEnrollment(sId, enrolledSubjectIds);
+      setActiveSyllabus(updated);
+      setShowElectiveModal(false);
+      setReviewData(null);
+      await refreshList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to finalize elective choices');
+      throw err;
+    } finally {
+      setIsMutating(false);
+    }
+  }, [reviewData, activeSyllabus, refreshList]);
+
   const uploadFile = useCallback(async (file: File) => {
     const controller = new AbortController();
     setActiveUploadController(controller);
@@ -95,8 +143,21 @@ export function useSyllabus() {
           setUploadProgress(p);
         },
       });
+
       setActiveSyllabus(result);
       await refreshList();
+
+      // If elective choices require confirmation, open modal immediately
+      if (result.syllabus.requires_enrollment_confirmation) {
+        try {
+          const review = await fetchParseReview(result.syllabus.id);
+          setReviewData(review);
+          setShowElectiveModal(true);
+        } catch {
+          // Non-blocking fallback
+        }
+      }
+
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload and extraction failed';
@@ -111,12 +172,34 @@ export function useSyllabus() {
 
   const handleToggleLeaf = useCallback(async (leafId: string, isCompleted: boolean) => {
     if (!activeSyllabus) return;
+    const prev = activeSyllabus;
+
+    // Optimistic update
+    const nextCompleted = toggleLeafCompletion(
+      prev.completed_leaf_ids,
+      leafId,
+      isCompleted
+    );
+    const enrolledLeaves = getDescendantLeafIds(prev.syllabus, undefined, true);
+    const nextProg = getProgressSummary(
+      enrolledLeaves.filter((id) => nextCompleted.has(id)).length,
+      enrolledLeaves.length
+    );
+
+    setActiveSyllabus({
+      ...prev,
+      completed_leaf_ids: Array.from(nextCompleted),
+      progress: nextProg,
+    });
+
     setIsMutating(true);
     try {
-      const updated = await toggleLeaf(activeSyllabus.syllabus.id, leafId, isCompleted);
+      const updated = await toggleLeaf(prev.syllabus.id, leafId, isCompleted);
       setActiveSyllabus(updated);
       await refreshList();
     } catch (err) {
+      // Rollback on failure
+      setActiveSyllabus(prev);
       setError(err instanceof Error ? err.message : 'Failed to update leaf completion');
     } finally {
       setIsMutating(false);
@@ -125,12 +208,35 @@ export function useSyllabus() {
 
   const handleToggleBranch = useCallback(async (nodeId: string, isCompleted: boolean) => {
     if (!activeSyllabus) return;
+    const prev = activeSyllabus;
+
+    // Optimistic update
+    const branchLeaves = getDescendantLeafIds(prev.syllabus, nodeId, true);
+    const nextCompleted = toggleBranchCompletion(
+      prev.completed_leaf_ids,
+      branchLeaves,
+      isCompleted
+    );
+    const enrolledLeaves = getDescendantLeafIds(prev.syllabus, undefined, true);
+    const nextProg = getProgressSummary(
+      enrolledLeaves.filter((id) => nextCompleted.has(id)).length,
+      enrolledLeaves.length
+    );
+
+    setActiveSyllabus({
+      ...prev,
+      completed_leaf_ids: Array.from(nextCompleted),
+      progress: nextProg,
+    });
+
     setIsMutating(true);
     try {
-      const updated = await toggleBranch(activeSyllabus.syllabus.id, nodeId, isCompleted);
+      const updated = await toggleBranch(prev.syllabus.id, nodeId, isCompleted);
       setActiveSyllabus(updated);
       await refreshList();
     } catch (err) {
+      // Rollback on failure
+      setActiveSyllabus(prev);
       setError(err instanceof Error ? err.message : 'Failed to update branch completion');
     } finally {
       setIsMutating(false);
@@ -182,5 +288,11 @@ export function useSyllabus() {
     handleRename,
     handleDelete,
     clearActive: () => setActiveSyllabus(null),
+    // Elective onboarding support
+    reviewData,
+    showElectiveModal,
+    openElectiveModal: openElectiveModalForSyllabus,
+    closeElectiveModal,
+    handleFinalizeEnrollment,
   };
 }

@@ -12,12 +12,19 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import settings
 from backend.app.exceptions import (
+    HierarchyValidationError,
     InvalidLeafError,
     InvalidNodeError,
     SyllabusNotFoundError,
 )
 from backend.app.models import Base, LeafCompletionRecord, SyllabusRecord
-from backend.app.schemas import HierarchicalSyllabus, SyllabusSummary, ProgressSummary
+from backend.app.schemas import (
+    HierarchicalSyllabus,
+    ParseReviewResponse,
+    ProgressSummary,
+    Subject,
+    SyllabusSummary,
+)
 from backend.app.progress import calculate_syllabus_progress, get_all_leaf_ids
 
 
@@ -322,3 +329,97 @@ def delete_syllabus(session: Session, syllabus_id: str) -> bool:
     session.delete(rec)
     session.flush()
     return True
+
+
+def get_syllabus_review(session: Session, syllabus_id: str) -> ParseReviewResponse:
+    """Retrieve draft hierarchy and detected elective groups for student enrollment confirmation."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    warnings = json.loads(rec.warnings_json) if rec.warnings_json else []
+
+    detected_electives: List[Subject] = []
+    elective_groups: dict[str, List[Subject]] = {}
+
+    for yr in syllabus.years:
+        for sem in yr.semesters:
+            for subj in sem.subjects:
+                if subj.is_elective or subj.enrollment_status in ("pending", "selected", "excluded"):
+                    detected_electives.append(subj)
+                    grp = subj.elective_group or f"{sem.title} Electives"
+                    if grp not in elective_groups:
+                        elective_groups[grp] = []
+                    elective_groups[grp].append(subj)
+
+    return ParseReviewResponse(
+        syllabus_id=syllabus.id,
+        title=syllabus.title,
+        detected_electives=detected_electives,
+        elective_groups=elective_groups,
+        years=syllabus.years,
+        requires_enrollment_confirmation=syllabus.requires_enrollment_confirmation,
+        extraction_warnings=warnings,
+    )
+
+
+def finalize_syllabus_enrollment(
+    session: Session,
+    syllabus_id: str,
+    enrolled_subject_ids: List[str],
+) -> HierarchicalSyllabus:
+    """
+    Atomically finalize or update elective enrollment for a syllabus.
+    - Validates that all submitted subject IDs belong to the syllabus.
+    - Mandatory courses remain enrolled.
+    - Elective courses matching enrolled_subject_ids become enrolled ('selected').
+    - Non-matching elective courses become excluded ('excluded').
+    - Completed leaf records are strictly preserved.
+    """
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+
+    # Build lookup of all subjects in syllabus
+    subject_map: dict[str, Subject] = {}
+    for yr in syllabus.years:
+        for sem in yr.semesters:
+            for subj in sem.subjects:
+                subject_map[subj.id] = subj
+
+    # Validate that every submitted ID belongs to this syllabus
+    submitted_set = set(enrolled_subject_ids)
+    invalid_ids = submitted_set - set(subject_map.keys())
+    if invalid_ids:
+        raise HierarchyValidationError(
+            f"Submitted subject ID(s) do not belong to syllabus '{syllabus_id}': {sorted(invalid_ids)}"
+        )
+
+    # Apply enrollment states
+    for subj in subject_map.values():
+        if subj.is_elective:
+            if subj.id in submitted_set:
+                subj.is_enrolled = True
+                subj.enrollment_status = "selected"
+            else:
+                subj.is_enrolled = False
+                subj.enrollment_status = "excluded"
+        else:
+            # Mandatory course: cannot be excluded
+            subj.is_enrolled = True
+            subj.enrollment_status = "mandatory"
+
+    syllabus.requires_enrollment_confirmation = False
+    syllabus.updated_at = datetime.now(timezone.utc).isoformat()
+
+    rec.hierarchy_json = syllabus.model_dump_json()
+    rec.updated_at = datetime.now(timezone.utc)
+    session.flush()
+
+    return syllabus
+

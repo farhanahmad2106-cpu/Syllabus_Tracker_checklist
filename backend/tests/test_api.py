@@ -269,3 +269,129 @@ def test_upload_progress_sse_stream_initial_event(client):
         assert first_line.startswith("id: ")
 
 
+def test_operational_endpoints_liveness_and_readiness(client):
+    """Verify operational endpoints /health and /ready."""
+    # Top-level health
+    h_res = client.get("/health")
+    assert h_res.status_code == 200
+    assert h_res.json()["status"] == "healthy"
+
+    # Top-level readiness
+    r_res = client.get("/ready")
+    assert r_res.status_code == 200
+    r_data = r_res.json()
+    assert r_data["status"] == "ready"
+    assert r_data["database_connected"] is True
+
+
+def test_review_and_finalize_enrollment_api(client, db_session):
+    """Verify GET review, POST finalize-enrollment, and POST update-enrollment endpoints."""
+    from backend.app.schemas import (
+        AcademicYear,
+        HierarchicalSyllabus,
+        Module,
+        Semester,
+        Subject,
+        Subtopic,
+    )
+
+    syl = HierarchicalSyllabus(
+        id="syl_api_electives",
+        title="Elective Program",
+        source_filename="electives.pdf",
+        requires_enrollment_confirmation=True,
+        years=[
+            AcademicYear(
+                id="y1",
+                title="Year 1",
+                semesters=[
+                    Semester(
+                        id="s1",
+                        title="Sem 1",
+                        subjects=[
+                            Subject(
+                                id="subj_core",
+                                title="Core Subject",
+                                is_elective=False,
+                                is_enrolled=True,
+                                enrollment_status="mandatory",
+                                modules=[Module(id="m1", title="Mod 1", topics=[Subtopic(id="l1", title="T1", source_text="T1")])],
+                            ),
+                            Subject(
+                                id="subj_elec1",
+                                title="Elective 1",
+                                is_elective=True,
+                                elective_group="Group A",
+                                is_enrolled=False,
+                                enrollment_status="pending",
+                                modules=[Module(id="m2", title="Mod 2", topics=[Subtopic(id="l2", title="T2", source_text="T2")])],
+                            ),
+                            Subject(
+                                id="subj_elec2",
+                                title="Elective 2",
+                                is_elective=True,
+                                elective_group="Group A",
+                                is_enrolled=False,
+                                enrollment_status="pending",
+                                modules=[Module(id="m3", title="Mod 3", topics=[Subtopic(id="l3", title="T3", source_text="T3")])],
+                            ),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    save_syllabus(db_session, syl)
+    db_session.commit()
+
+    # 1. Review endpoint
+    rev_res = client.get(f"/api/syllabus/{syl.id}/review")
+    assert rev_res.status_code == 200
+    rev_data = rev_res.json()
+    assert rev_data["syllabus_id"] == syl.id
+    assert len(rev_data["detected_electives"]) == 2
+
+    # 2. Finalize enrollment selecting Elective 1
+    fin_res = client.post(
+        f"/api/syllabus/{syl.id}/finalize-enrollment",
+        json={"enrolled_subject_ids": ["subj_elec1"]},
+    )
+    assert fin_res.status_code == 200
+    fin_data = fin_res.json()
+    assert fin_data["syllabus"]["requires_enrollment_confirmation"] is False
+    # Only Core + Elec1 active -> 2 leaves total
+    assert fin_data["progress"]["total_leaves"] == 2
+
+    # 3. Update enrollment selecting Elective 2 instead
+    upd_res = client.post(
+        f"/api/syllabus/{syl.id}/update-enrollment",
+        json={"enrolled_subject_ids": ["subj_elec2"]},
+    )
+    assert upd_res.status_code == 200
+    upd_data = upd_res.json()
+    assert upd_data["progress"]["total_leaves"] == 2
+
+
+def test_toggle_leaf_and_bulk_toggle_with_completed_alias(client, db_session, sample_syllabus):
+    """Verify toggle endpoints support 'completed' parameter alias and 'node_type'."""
+    save_syllabus(db_session, sample_syllabus)
+    db_session.commit()
+
+    # Toggle single leaf with 'completed'
+    res1 = client.patch(
+        f"/api/syllabus/{sample_syllabus.id}/toggle-leaf",
+        json={"leaf_id": "sub_arr", "completed": True},
+    )
+    assert res1.status_code == 200
+    assert "sub_arr" in res1.json()["completed_leaf_ids"]
+
+    # Bulk toggle branch with 'completed' and 'node_type'
+    res2 = client.patch(
+        f"/api/syllabus/{sample_syllabus.id}/bulk-toggle",
+        json={"node_id": "top_algo", "node_type": "subject", "completed": True},
+    )
+    assert res2.status_code == 200
+    assert "sub_stack" in res2.json()["completed_leaf_ids"]
+
+
+

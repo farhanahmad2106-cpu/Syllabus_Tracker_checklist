@@ -1,8 +1,11 @@
 /**
  * Canonical TypeScript interfaces mirroring the backend Pydantic v2 domain contracts.
+ * Strictly models the five-tier academic hierarchy beneath the Document Root.
  */
 
-export type GroundingStatus = 'verified' | 'needs_review' | 'unverified';
+export type GroundingStatus = 'verified' | 'needs_review' | 'unverified' | 'review_required';
+
+export type EnrollmentStatus = 'mandatory' | 'selected' | 'excluded' | 'pending';
 
 export interface Subtopic {
   id: string;
@@ -13,6 +16,8 @@ export interface Subtopic {
   source_document_id?: string | null;
   evidence_status?: GroundingStatus;
   grounding_status?: GroundingStatus;
+  source_start_offset?: number | null;
+  source_end_offset?: number | null;
   order_index?: number;
 }
 
@@ -20,6 +25,7 @@ export interface Module {
   id: string;
   module_number?: string | null;
   title: string;
+  contact_hours?: number | null;
   topics: Subtopic[];
   order_index?: number;
 }
@@ -28,6 +34,11 @@ export interface Subject {
   id: string;
   code?: string | null;
   title: string;
+  is_lab?: boolean;
+  is_elective?: boolean;
+  elective_group?: string | null;
+  is_enrolled?: boolean;
+  enrollment_status?: EnrollmentStatus;
   modules: Module[];
   order_index?: number;
 }
@@ -44,6 +55,7 @@ export interface Topic {
 export interface Semester {
   id: string;
   title: string;
+  semester_number?: number | null;
   subjects?: Subject[];
   topics?: Topic[];
   order_index?: number;
@@ -52,6 +64,7 @@ export interface Semester {
 export interface AcademicYear {
   id: string;
   title: string;
+  year_number?: number | null;
   semesters: Semester[];
   order_index?: number;
 }
@@ -67,6 +80,10 @@ export interface HierarchicalSyllabus {
   source_filename: string;
   schema_version: number;
   content_hash?: string | null;
+  source_file_hash?: string | null;
+  source_file_type?: string;
+  extraction_status?: string;
+  requires_enrollment_confirmation?: boolean;
 }
 
 export interface ProgressSummary {
@@ -96,6 +113,11 @@ export interface SyllabusSummary {
 export interface HealthResponse {
   status: string;
   database: string;
+  active_provider?: string;
+  provider_status?: {
+    is_reachable: boolean;
+    message: string;
+  };
   ollama: {
     is_reachable: boolean;
     message: string;
@@ -108,13 +130,16 @@ export interface HealthResponse {
 
 export interface LeafTogglePayload {
   leaf_id: string;
-  is_completed: boolean;
+  is_completed?: boolean;
+  completed?: boolean;
 }
 
 export interface BulkTogglePayload {
+  node_type?: string;
   node_id?: string;
   leaf_ids?: string[];
-  is_completed: boolean;
+  is_completed?: boolean;
+  completed?: boolean;
 }
 
 export interface SyllabusRenamePayload {
@@ -136,6 +161,8 @@ export interface AppConfigResponse {
     evidence_grounding: boolean;
     tri_state_checkboxes: boolean;
     leaf_only_persistence: boolean;
+    dual_provider_extraction?: boolean;
+    elective_onboarding?: boolean;
   };
   app_version: string;
   schema_version: number;
@@ -144,11 +171,16 @@ export interface AppConfigResponse {
 export type UploadStage =
   | 'queued'
   | 'validating'
+  | 'extracting_text'
   | 'parsing'
+  | 'cleaning'
   | 'chunking'
   | 'extracting'
+  | 'extracting_curriculum'
   | 'validating_result'
+  | 'merging'
   | 'persisting'
+  | 'awaiting_enrollment'
   | 'completed'
   | 'failed'
   | 'cancelled';
@@ -165,6 +197,21 @@ export interface UploadProgress {
   stage: UploadStage;
   percent: number;
   message: string;
+  syllabus_id?: string | null;
   result: SyllabusResponse | null;
   error: string | null;
+}
+
+export interface ParseReviewResponse {
+  syllabus_id: string;
+  title: string;
+  detected_electives: Subject[];
+  elective_groups: Record<string, Subject[]> | string[];
+  years: AcademicYear[];
+  requires_enrollment_confirmation: boolean;
+  extraction_warnings?: string[];
+}
+
+export interface FinalizeEnrollmentRequest {
+  enrolled_subject_ids: string[];
 }

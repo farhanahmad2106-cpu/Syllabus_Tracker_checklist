@@ -266,5 +266,112 @@ describe('SyllabusTree', () => {
     fireEvent.click(closeBtn);
     expect(screen.queryByText('Source Evidence & Grounding')).not.toBeInTheDocument();
   });
+
+  it('renders lab badge and keeps lab course collapsed by default', () => {
+    const syllabusWithLab: HierarchicalSyllabus = {
+      id: 'syl_lab_test',
+      title: 'Lab & Theory Program',
+      source_filename: 'labs.pdf',
+      schema_version: 2,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      years: [
+        {
+          id: 'yr_1',
+          title: 'Year 1',
+          semesters: [
+            {
+              id: 'sem_1',
+              title: 'Semester 1',
+              subjects: [
+                {
+                  id: 'subj_theory',
+                  code: 'CS101',
+                  title: 'Theory of Computation',
+                  is_lab: false,
+                  is_enrolled: true,
+                  modules: [
+                    {
+                      id: 'mod_th1',
+                      title: 'Automata Theory',
+                      contact_hours: 4,
+                      topics: [
+                        {
+                          id: 'top_dfa',
+                          title: 'Deterministic Finite Automata',
+                          source_text: 'DFA definitions',
+                        },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  id: 'subj_lab',
+                  code: 'CS101L',
+                  title: 'Computing Systems Laboratory',
+                  is_lab: true,
+                  is_enrolled: true,
+                  modules: [
+                    {
+                      id: 'mod_lab1',
+                      title: 'Unix Command Line Lab',
+                      contact_hours: 2,
+                      topics: [
+                        {
+                          id: 'top_shell',
+                          title: 'Shell Scripting Exercises',
+                          source_text: 'Bash programming basics',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <SyllabusTree
+        syllabus={syllabusWithLab}
+        completedLeafIds={[]}
+        nodeProgress={{}}
+        onToggleLeaf={vi.fn()}
+        onToggleBranch={vi.fn()}
+      />
+    );
+
+    // Theory course is open by default: its module and contact hours badge are visible
+    expect(screen.getByText('Theory of Computation')).toBeInTheDocument();
+    expect(screen.getByText('Automata Theory')).toBeInTheDocument();
+    expect(screen.getByText('4 Contact Hrs')).toBeInTheDocument();
+    const theoryToggle = screen.getByRole('button', {
+      name: /Toggle Theory of Computation/i,
+    });
+    expect(theoryToggle).toHaveAttribute('aria-expanded', 'true');
+
+    // Lab course displays Lab Course badge
+    expect(screen.getByText('Computing Systems Laboratory')).toBeInTheDocument();
+    expect(screen.getByText('Lab Course')).toBeInTheDocument();
+
+    // Lab course is COLLAPSED by default (aria-expanded is false)
+    const labToggle = screen.getByRole('button', {
+      name: /Toggle Computing Systems Laboratory/i,
+    });
+    expect(labToggle).toHaveAttribute('aria-expanded', 'false');
+
+    // Expanding lab course toggles aria-expanded to true
+    fireEvent.click(labToggle);
+    expect(labToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Unix Command Line Lab')).toBeInTheDocument();
+    expect(screen.getByText('2 Contact Hrs')).toBeInTheDocument();
+    expect(screen.getByText('Shell Scripting Exercises')).toBeInTheDocument();
+
+    // Collapsing again sets aria-expanded back to false
+    fireEvent.click(labToggle);
+    expect(labToggle).toHaveAttribute('aria-expanded', 'false');
+  });
 });
 

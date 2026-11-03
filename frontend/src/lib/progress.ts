@@ -1,6 +1,7 @@
 /**
  * Pure TypeScript progress calculation and cascading checklist engine.
  * Mirrors the backend progress module with deterministic integer counts and rounding.
+ * Strictly calculates progress from enrolled descendant leaves.
  */
 
 import type {
@@ -8,6 +9,21 @@ import type {
   HierarchicalSyllabus,
   ProgressSummary,
 } from '../types/syllabus';
+
+/**
+ * Check if a subject is currently enrolled.
+ * Excluded or pending electives return false.
+ */
+export function isSubjectEnrolled(subject: any): boolean {
+  if (!subject) return false;
+  if (subject.enrollment_status === 'excluded' || subject.enrollment_status === 'pending') {
+    return false;
+  }
+  if (subject.enrollment_status === 'mandatory' || subject.enrollment_status === 'selected') {
+    return true;
+  }
+  return subject.is_enrolled !== false;
+}
 
 /**
  * Helper to normalize subjects from a semester
@@ -20,6 +36,8 @@ function getSubjects(sem: any): any[] {
     return sem.topics.map((t: any) => ({
       id: `subj_${t.id}`,
       title: t.title,
+      is_enrolled: true,
+      enrollment_status: 'mandatory',
       modules: [
         {
           id: t.id,
@@ -35,19 +53,23 @@ function getSubjects(sem: any): any[] {
 /**
  * Collect all leaf subtopic IDs for a given syllabus or sub-tree.
  * Supports canonical 5-tier: Year -> Semester -> Subject -> Module -> Topic.
+ * Excludes non-enrolled subjects by default when querying higher levels.
  */
 export function getDescendantLeafIds(
   syllabus: HierarchicalSyllabus,
-  targetNodeId?: string
+  targetNodeId?: string,
+  enrolledOnly: boolean = true
 ): string[] {
   const getAllLeaves = (): string[] => {
     return (syllabus.years || []).flatMap((yr) =>
       (yr.semesters || []).flatMap((sem) =>
-        getSubjects(sem).flatMap((subj: any) =>
-          (subj.modules || []).flatMap((mod: any) =>
-            (mod.topics || []).map((top: any) => top.id)
+        getSubjects(sem)
+          .filter((subj: any) => (enrolledOnly ? isSubjectEnrolled(subj) : true))
+          .flatMap((subj: any) =>
+            (subj.modules || []).flatMap((mod: any) =>
+              (mod.topics || []).map((top: any) => top.id)
+            )
           )
-        )
       )
     );
   };
@@ -59,20 +81,24 @@ export function getDescendantLeafIds(
   for (const yr of syllabus.years || []) {
     if (yr.id === targetNodeId) {
       return (yr.semesters || []).flatMap((sem) =>
-        getSubjects(sem).flatMap((subj: any) =>
-          (subj.modules || []).flatMap((mod: any) =>
-            (mod.topics || []).map((top: any) => top.id)
+        getSubjects(sem)
+          .filter((subj: any) => (enrolledOnly ? isSubjectEnrolled(subj) : true))
+          .flatMap((subj: any) =>
+            (subj.modules || []).flatMap((mod: any) =>
+              (mod.topics || []).map((top: any) => top.id)
+            )
           )
-        )
       );
     }
     for (const sem of yr.semesters || []) {
       if (sem.id === targetNodeId) {
-        return getSubjects(sem).flatMap((subj: any) =>
-          (subj.modules || []).flatMap((mod: any) =>
-            (mod.topics || []).map((top: any) => top.id)
-          )
-        );
+        return getSubjects(sem)
+          .filter((subj: any) => (enrolledOnly ? isSubjectEnrolled(subj) : true))
+          .flatMap((subj: any) =>
+            (subj.modules || []).flatMap((mod: any) =>
+              (mod.topics || []).map((top: any) => top.id)
+            )
+          );
       }
       for (const subj of getSubjects(sem)) {
         if (subj.id === targetNodeId) {
@@ -112,7 +138,7 @@ export function getProgressSummary(
     };
   }
   const completed = Math.max(0, Math.min(completedCount, totalCount));
-  const percent = Math.round((completed / totalCount) * 100);
+  const percent = Math.round((completed / totalCount) * 1000) / 10;
   return {
     total_leaves: totalCount,
     completed_leaves: completed,
@@ -190,6 +216,6 @@ export function sanitizeCompletedLeaves(
   syllabus: HierarchicalSyllabus,
   completedIds: string[]
 ): string[] {
-  const validLeaves = new Set(getDescendantLeafIds(syllabus));
+  const validLeaves = new Set(getDescendantLeafIds(syllabus, undefined, false));
   return Array.from(new Set(completedIds.filter((id) => validLeaves.has(id))));
 }

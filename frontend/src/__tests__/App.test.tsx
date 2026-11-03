@@ -141,6 +141,11 @@ describe('App Component Layout, Sidebar Deduplication, and Drawer Interactions',
       handleRename: vi.fn(),
       handleDelete: mockHandleDelete,
       clearActive: vi.fn(),
+      reviewData: null,
+      showElectiveModal: false,
+      openElectiveModal: vi.fn(),
+      closeElectiveModal: vi.fn(),
+      handleFinalizeEnrollment: vi.fn(),
     });
   });
 

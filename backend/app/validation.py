@@ -1,4 +1,13 @@
-"""Deterministic validation, grounding verification, and hierarchy canonicalization."""
+"""Deterministic validation, grounding verification, and hierarchy canonicalization.
+
+Guarantees:
+- Strictly enforces the 5-tier academic hierarchy.
+- Zero-hallucination grounding: verbatim source evidence matching and canonical source offsets.
+- Academic year inference via integer arithmetic: Year = (Semester + 1) // 2.
+- Contextual lab and practical course detection (is_lab: True).
+- Elective course and elective group detection (is_elective: True, enrollment_status: 'pending').
+- Extraction of module contact hours as display-only metadata.
+"""
 
 import math
 import re
@@ -26,6 +35,40 @@ def normalize_whitespace(text: str) -> str:
     return collapsed.lower()
 
 
+def find_source_offsets(snippet: str, source_text: str) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Locate verbatim or normalized character offsets [start, end] in canonical source text.
+    Returns (start_offset, end_offset) if verified, else (None, None).
+    """
+    if not snippet or not source_text:
+        return None, None
+
+    # 1. Exact substring match
+    idx = source_text.find(snippet)
+    if idx != -1:
+        return idx, idx + len(snippet)
+
+    # 2. Case-insensitive exact match
+    lower_snippet = snippet.lower()
+    lower_source = source_text.lower()
+    idx = lower_source.find(lower_snippet)
+    if idx != -1:
+        return idx, idx + len(snippet)
+
+    # 3. Normalized whitespace token search
+    tokens = [re.escape(t) for t in snippet.split() if t.strip()]
+    if tokens:
+        pattern = r"\s+".join(tokens)
+        try:
+            m = re.search(pattern, source_text, re.IGNORECASE)
+            if m:
+                return m.start(), m.end()
+        except re.error:
+            pass
+
+    return None, None
+
+
 def verify_grounding(snippet: str, source_text: str) -> bool:
     """
     Verify that an extracted evidence snippet actually exists within the source document text.
@@ -33,6 +76,9 @@ def verify_grounding(snippet: str, source_text: str) -> bool:
     """
     if not snippet or not source_text:
         return False
+    start, end = find_source_offsets(snippet, source_text)
+    if start is not None and end is not None:
+        return True
     norm_snippet = normalize_whitespace(snippet)
     norm_source = normalize_whitespace(source_text)
     return norm_snippet in norm_source
@@ -58,16 +104,64 @@ def derive_academic_year_number(semester_title: str, semester_number: Optional[i
     return None
 
 
+def detect_lab_course(title: str, code: Optional[str] = None) -> bool:
+    """Identify laboratory, practical, workshop, or sessional courses using contextual evidence."""
+    combined = f"{code or ''} {title}".lower()
+    lab_keywords = [
+        r"\blab\b",
+        r"\blaboratory\b",
+        r"\bpractical\b",
+        r"\bworkshop\b",
+        r"\bsessional\b",
+        r"\bhands[- ]on\b",
+        r"\bproject[- ]work\b",
+        r"\bfieldwork\b",
+    ]
+    for pattern in lab_keywords:
+        if re.search(pattern, combined):
+            return True
+    if code:
+        code_upper = code.strip().upper()
+        if code_upper.endswith("L") or code_upper.endswith("-L") or "LAB" in code_upper:
+            return True
+    return False
+
+
+def detect_elective_course(title: str, code: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+    """
+    Identify elective courses and their group from title and code.
+    Returns (is_elective, elective_group).
+    """
+    combined = f"{code or ''} {title}".strip()
+    match = re.search(
+        r"\b(?:elective|open\s*elective|professional\s*elective|program\s*elective|optional|discipline\s*elective)\s*[-:]?\s*([A-Za-z0-9IVX]+)?\b",
+        combined,
+        re.IGNORECASE,
+    )
+    if match:
+        group_suffix = match.group(1)
+        group_name = f"Elective {group_suffix.upper()}" if group_suffix else "Elective Group"
+        return True, group_name
+
+    # Check for keywords like "(Elective)" or "Elective-I"
+    if re.search(r"\belective\b", combined, re.IGNORECASE):
+        return True, "Elective Group"
+
+    return False, None
+
+
 def canonicalize_extracted_curriculum(
     extracted: ExtractedCurriculum,
     source_filename: str,
     source_document_text: str,
     syllabus_id: str,
+    content_hash: Optional[str] = None,
 ) -> Tuple[HierarchicalSyllabus, List[str]]:
     """
     Transforms extracted curriculum into canonical 5-level HierarchicalSyllabus:
     Document Root -> Academic Year -> Semester -> Subject -> Module -> Topic.
     Validates source grounding, unique IDs, positive page numbers, and structural completeness.
+    Detects labs, electives, contact hours, and canonical source offsets.
     """
     warnings: List[str] = []
     seen_ids: Set[str] = set()
@@ -82,6 +176,7 @@ def canonicalize_extracted_curriculum(
 
     canonical_years: List[AcademicYear] = []
     year_index = 0
+    requires_enrollment_confirmation = False
 
     for y_idx, ext_year in enumerate(extracted.years):
         year_title = ext_year.title.strip() if ext_year.title else f"Academic Year {y_idx + 1}"
@@ -97,7 +192,6 @@ def canonicalize_extracted_curriculum(
             seen_ids.add(sem_id)
 
             canonical_subjects: List[Subject] = []
-            # Check subjects (with backward compatibility fallback to topics)
             raw_subjects = ext_sem.subjects
             if not raw_subjects and hasattr(ext_sem, "topics") and ext_sem.topics:
                 # Legacy format: each topic becomes a subject with a single module
@@ -119,14 +213,48 @@ def canonicalize_extracted_curriculum(
 
             for subj_idx, ext_subj in enumerate(raw_subjects):
                 subj_title = ext_subj.title.strip() if ext_subj.title else f"Subject {subj_idx + 1}"
+                subj_code = getattr(ext_subj, "code", None)
                 subj_id = f"{sem_id}_subj_{subj_idx + 1}"
                 seen_ids.add(subj_id)
+
+                # Lab identification
+                is_lab = getattr(ext_subj, "is_lab", False) or detect_lab_course(subj_title, subj_code)
+
+                # Elective identification
+                is_elective = getattr(ext_subj, "is_elective", False)
+                elective_group = getattr(ext_subj, "elective_group", None)
+                if not is_elective:
+                    is_detected_elective, detected_group = detect_elective_course(subj_title, subj_code)
+                    if is_detected_elective:
+                        is_elective = True
+                        elective_group = elective_group or detected_group
+
+                if is_elective:
+                    requires_enrollment_confirmation = True
+                    is_enrolled = False
+                    enrollment_status = "pending"
+                else:
+                    is_enrolled = True
+                    enrollment_status = "mandatory"
 
                 canonical_modules: List[Module] = []
                 for mod_idx, ext_mod in enumerate(ext_subj.modules):
                     mod_title = ext_mod.title.strip() if ext_mod.title else f"Module {mod_idx + 1}"
                     mod_id = f"{subj_id}_mod_{mod_idx + 1}"
                     seen_ids.add(mod_id)
+
+                    # Extract module contact hours if provided
+                    raw_hours = getattr(ext_mod, "contact_hours", None)
+                    contact_hours = None
+                    if raw_hours is not None and isinstance(raw_hours, int) and raw_hours >= 0:
+                        contact_hours = raw_hours
+                    elif isinstance(raw_hours, str) and raw_hours.isdigit():
+                        contact_hours = int(raw_hours)
+                    else:
+                        # Attempt explicit detection from title, e.g. "Module 1 (3 Contact Hrs)" or "(4 Hours)"
+                        hr_match = re.search(r"\(?\b(\d+)\s*(?:contact\s*hrs?|contact\s*hours?|hrs?|hours?)\b\)?", mod_title, re.IGNORECASE)
+                        if hr_match:
+                            contact_hours = int(hr_match.group(1))
 
                     canonical_topics: List[Subtopic] = []
                     mod_topics = ext_mod.topics if hasattr(ext_mod, "topics") else getattr(ext_mod, "subtopics", [])
@@ -139,13 +267,16 @@ def canonicalize_extracted_curriculum(
                         if not evidence:
                             evidence = top_title
 
-                        # Grounding verification against original source text
+                        # Grounding verification against original source text and offset calculation
                         evidence_status = "verified"
+                        start_offset, end_offset = find_source_offsets(evidence, source_document_text)
+
                         if source_document_text:
                             is_grounded = verify_grounding(evidence, source_document_text)
                             if not is_grounded:
                                 if verify_grounding(top_title, source_document_text):
                                     evidence = top_title
+                                    start_offset, end_offset = find_source_offsets(evidence, source_document_text)
                                 else:
                                     evidence_status = "needs_review"
                                     warnings.append(
@@ -165,6 +296,8 @@ def canonicalize_extracted_curriculum(
                             source_document_id=syllabus_id,
                             evidence_status=evidence_status,
                             grounding_status=evidence_status,
+                            source_start_offset=start_offset,
+                            source_end_offset=end_offset,
                             order_index=top_idx,
                         )
                         canonical_topics.append(subtopic)
@@ -175,6 +308,7 @@ def canonicalize_extracted_curriculum(
                                 id=mod_id,
                                 module_number=getattr(ext_mod, "module_number", None),
                                 title=mod_title,
+                                contact_hours=contact_hours,
                                 topics=canonical_topics,
                                 order_index=mod_idx,
                             )
@@ -184,8 +318,13 @@ def canonicalize_extracted_curriculum(
                     canonical_subjects.append(
                         Subject(
                             id=subj_id,
-                            code=getattr(ext_subj, "code", None),
+                            code=subj_code,
                             title=subj_title,
+                            is_lab=is_lab,
+                            is_elective=is_elective,
+                            elective_group=elective_group,
+                            is_enrolled=is_enrolled,
+                            enrollment_status=enrollment_status,
                             modules=canonical_modules,
                             order_index=subj_idx,
                         )
@@ -196,6 +335,7 @@ def canonicalize_extracted_curriculum(
                     Semester(
                         id=sem_id,
                         title=sem_title,
+                        semester_number=getattr(ext_sem, "semester_number", None),
                         subjects=canonical_subjects,
                         order_index=s_idx,
                     )
@@ -206,6 +346,7 @@ def canonicalize_extracted_curriculum(
                 AcademicYear(
                     id=year_id,
                     title=year_title,
+                    year_number=getattr(ext_year, "year_number", None),
                     semesters=canonical_semesters,
                     order_index=year_index,
                 )
@@ -227,11 +368,18 @@ def canonicalize_extracted_curriculum(
             "A document without reliably extractable topics cannot be populated as a syllabus."
         )
 
+    ext = source_filename.split(".")[-1].lower() if "." in source_filename else "pdf"
+
     syllabus = HierarchicalSyllabus(
         id=syllabus_id,
         title=title,
         years=canonical_years,
         source_filename=source_filename,
+        content_hash=content_hash,
+        source_file_hash=content_hash,
+        source_file_type=ext,
+        extraction_status="completed",
+        requires_enrollment_confirmation=requires_enrollment_confirmation,
         schema_version=2,
     )
 

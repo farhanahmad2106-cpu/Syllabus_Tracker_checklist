@@ -5,6 +5,7 @@
 import type {
   AppConfigResponse,
   HealthResponse,
+  ParseReviewResponse,
   StartUploadResponse,
   SyllabusResponse,
   SyllabusSummary,
@@ -334,3 +335,33 @@ export async function deleteSyllabus(syllabusId: string): Promise<void> {
   });
   return handleResponse<void>(res);
 }
+
+export async function fetchParseReview(syllabusId: string): Promise<ParseReviewResponse> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/review`);
+  return handleResponse<ParseReviewResponse>(res);
+}
+
+export async function finalizeEnrollment(
+  syllabusId: string,
+  enrolledSubjectIds: string[]
+): Promise<SyllabusResponse> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/finalize-enrollment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enrolled_subject_ids: enrolledSubjectIds }),
+  });
+  return handleResponse<SyllabusResponse>(res);
+}
+
+export async function updateEnrollment(
+  syllabusId: string,
+  enrolledSubjectIds: string[]
+): Promise<SyllabusResponse> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/update-enrollment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enrolled_subject_ids: enrolledSubjectIds }),
+  });
+  return handleResponse<SyllabusResponse>(res);
+}
+

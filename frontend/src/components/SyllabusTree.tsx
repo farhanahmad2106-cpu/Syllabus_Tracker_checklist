@@ -41,10 +41,12 @@ function getSemesterSubjects(sem: Semester): Subject[] {
       id: `subj_${t.id}`,
       code: null,
       title: t.title,
+      is_enrolled: true,
+      enrollment_status: 'mandatory',
       order_index: t.order_index ?? idx,
       modules: [
         {
-          id: t.id, // preserve legacy topic id so existing leaf resolution and node_progress match
+          id: t.id,
           module_number: null,
           title: 'Module 1',
           topics: t.subtopics || t.topics || [],
@@ -56,19 +58,33 @@ function getSemesterSubjects(sem: Semester): Subject[] {
   return [];
 }
 
+// Helper to check if a subject is enrolled
+function isSubjectEnrolled(subj: Subject): boolean {
+  if (subj.enrollment_status === 'excluded' || subj.enrollment_status === 'pending') {
+    return false;
+  }
+  if (subj.enrollment_status === 'mandatory' || subj.enrollment_status === 'selected') {
+    return true;
+  }
+  return subj.is_enrolled !== false;
+}
+
 // Helper to collect all descendant topic leaf IDs for a module
 function getModuleLeaves(mod: Module): string[] {
   return (mod.topics || []).map((t) => t.id);
 }
 
-// Helper to collect all descendant topic leaf IDs for a subject
-function getSubjectLeaves(subj: Subject): string[] {
+// Helper to collect all descendant topic leaf IDs for a subject (only if enrolled)
+function getSubjectLeaves(subj: Subject, enrolledOnly: boolean = true): string[] {
+  if (enrolledOnly && !isSubjectEnrolled(subj)) {
+    return [];
+  }
   return (subj.modules || []).flatMap(getModuleLeaves);
 }
 
 // Helper to collect all descendant topic leaf IDs for a semester
 function getSemesterLeaves(sem: Semester): string[] {
-  return getSemesterSubjects(sem).flatMap(getSubjectLeaves);
+  return getSemesterSubjects(sem).flatMap((s) => getSubjectLeaves(s, true));
 }
 
 // Helper to collect all descendant topic leaf IDs for a year
@@ -86,7 +102,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
 }) => {
   const completedSet = new Set(completedLeafIds);
 
-  // Initialize all containers as expanded by default
+  // Initialize expansion: lab courses initialize collapsed by default; non-labs expanded
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     syllabus.years.forEach((yr) => {
@@ -95,7 +111,8 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
         initial[sem.id] = true;
         const subjects = getSemesterSubjects(sem);
         subjects.forEach((subj) => {
-          initial[subj.id] = true;
+          // Lab courses initialize collapsed by default
+          initial[subj.id] = subj.is_lab ? false : true;
           (subj.modules || []).forEach((mod) => {
             initial[mod.id] = true;
           });
@@ -181,12 +198,8 @@ const CollapsibleWrapper: React.FC<CollapsibleWrapperProps> = ({
   return (
     <div
       id={contentId}
-      role="region"
-      aria-hidden={!isExpanded}
       className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out motion-reduce:transition-none ${
-        isExpanded
-          ? 'grid-rows-[1fr] opacity-100'
-          : 'grid-rows-[0fr] opacity-0 pointer-events-none'
+        isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
       }`}
     >
       <div className="overflow-hidden min-h-0">{children}</div>
@@ -202,7 +215,7 @@ interface YearCardProps {
   yearLeaves: string[];
   yearState: boolean | 'indeterminate';
   isExpanded: boolean;
-  progress?: ProgressSummary;
+  progress: ProgressSummary;
   completedSet: Set<string>;
   nodeProgress: Record<string, ProgressSummary>;
   expandedNodes: Record<string, boolean>;
@@ -233,10 +246,10 @@ const YearCard: React.FC<YearCardProps> = ({
   return (
     <div
       data-testid={`year-card-${year.id}`}
-      className="border border-gray-800 bg-gray-900/40 rounded-2xl overflow-hidden transition-all shadow-sm"
+      className="border border-gray-800 bg-gray-900/60 rounded-2xl shadow-sm overflow-hidden transition-all duration-200"
     >
       {/* Year Header */}
-      <div className="flex items-center justify-between p-4 bg-gray-800/40 hover:bg-gray-800/60 border-b border-gray-800/80 transition-colors">
+      <div className="flex items-center justify-between p-4 bg-gray-900/90 border-b border-gray-800/80 transition-colors">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -244,10 +257,10 @@ const YearCard: React.FC<YearCardProps> = ({
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${year.title}`}
-            className="p-1 rounded-lg hover:bg-gray-700/60 text-gray-400 hover:text-gray-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            className="p-1 rounded-md hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
           >
             <ChevronDown
-              className={`w-5 h-5 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
+              className={`w-4 h-4 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
                 isExpanded ? 'rotate-0' : '-rotate-90'
               }`}
             />
@@ -262,7 +275,7 @@ const YearCard: React.FC<YearCardProps> = ({
 
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-base font-semibold text-gray-100">{year.title}</h3>
+            <h3 className="text-sm font-semibold text-gray-100">{year.title}</h3>
           </div>
         </div>
 
@@ -273,9 +286,9 @@ const YearCard: React.FC<YearCardProps> = ({
         )}
       </div>
 
-      {/* Year Body */}
+      {/* Year Content: Semesters */}
       <CollapsibleWrapper isExpanded={isExpanded} contentId={contentId}>
-        <div className="p-3 sm:p-5 space-y-4">
+        <div className="p-4 space-y-4">
           {(year.semesters || []).map((sem) => (
             <SemesterCard
               key={sem.id}
@@ -422,7 +435,8 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   getBranchState,
   isMutating,
 }) => {
-  const subjLeaves = getSubjectLeaves(subj);
+  const isEnrolled = isSubjectEnrolled(subj);
+  const subjLeaves = getSubjectLeaves(subj, isEnrolled);
   const subjState = getBranchState(subjLeaves);
   const isExpanded = !!expandedNodes[subj.id];
   const prog =
@@ -432,11 +446,15 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   return (
     <div
       data-testid={`subject-card-${subj.id}`}
-      className="border border-gray-800/80 bg-gray-900/30 rounded-xl overflow-hidden transition-all"
+      className={`border rounded-xl overflow-hidden transition-all ${
+        isEnrolled
+          ? 'border-gray-800/80 bg-gray-900/30'
+          : 'border-gray-800/40 bg-gray-950/20 opacity-75'
+      }`}
     >
       {/* Subject Header */}
       <div className="flex items-center justify-between p-3 bg-gray-900/40 hover:bg-gray-800/50 border-b border-gray-800/50 transition-colors">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => onToggleExpand(subj.id)}
@@ -459,7 +477,7 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
             ariaLabel={`Select all topics in ${subj.title}`}
           />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <BookOpen className="w-3.5 h-3.5 text-blue-400" />
             {subj.code && (
               <span className="px-1.5 py-0.5 text-[11px] font-mono font-medium rounded bg-blue-950/80 text-blue-300 border border-blue-800/50">
@@ -467,10 +485,35 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
               </span>
             )}
             <h5 className="text-xs font-semibold text-gray-200">{subj.title}</h5>
+
+            {/* Badges */}
+            {subj.is_lab && (
+              <span
+                data-testid={`badge-lab-${subj.id}`}
+                className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-950/80 text-purple-300 border border-purple-800/50"
+              >
+                Lab Course
+              </span>
+            )}
+
+            {subj.is_elective && (
+              <span
+                data-testid={`badge-elective-${subj.id}`}
+                className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/50"
+              >
+                {subj.elective_group || 'Elective'}
+              </span>
+            )}
+
+            {!isEnrolled && (
+              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-800 text-gray-400 border border-gray-700">
+                Excluded
+              </span>
+            )}
           </div>
         </div>
 
-        {prog && (
+        {prog && isEnrolled && (
           <div className="w-28 hidden sm:block">
             <ProgressBar progress={prog} size="sm" showLabel={true} />
           </div>
@@ -533,6 +576,11 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
     nodeProgress[mod.id] || computeLocalProgress(modLeaves, completedSet);
   const contentId = `module-content-${mod.id}`;
 
+  const contactHourBadgeText =
+    mod.contact_hours != null
+      ? `${mod.contact_hours} Contact Hrs`
+      : 'Contact Hours Not Specified';
+
   return (
     <div
       data-testid={`module-card-${mod.id}`}
@@ -540,7 +588,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
     >
       {/* Module Header */}
       <div className="flex items-center justify-between p-2.5 bg-gray-900/30 hover:bg-gray-800/40 border-b border-gray-800/40 transition-colors">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => onToggleExpand(mod.id)}
@@ -563,7 +611,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
             ariaLabel={`Select all topics in ${mod.title}`}
           />
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Folder className="w-3.5 h-3.5 text-emerald-400/80" />
             {mod.module_number && (
               <span className="text-[11px] font-mono text-emerald-400 font-medium">
@@ -571,6 +619,14 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
               </span>
             )}
             <h6 className="text-xs font-semibold text-gray-200">{mod.title}</h6>
+
+            {/* Contact hours badge */}
+            <span
+              data-testid={`badge-contact-hours-${mod.id}`}
+              className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40"
+            >
+              {contactHourBadgeText}
+            </span>
           </div>
         </div>
 
@@ -704,4 +760,3 @@ const BranchCheckbox: React.FC<BranchCheckboxProps> = ({
     </Checkbox.Root>
   );
 };
-

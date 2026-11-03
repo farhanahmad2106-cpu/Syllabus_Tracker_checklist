@@ -1,38 +1,53 @@
-"""Canonical Pydantic v2 schemas and data contracts."""
+"""Canonical Pydantic v2 schemas and data contracts.
+
+Enforces the five-tier academic hierarchy:
+Document Root (HierarchicalSyllabus)
+  Tier 1: AcademicYear
+    Tier 2: Semester
+      Tier 3: Subject
+        Tier 4: Module
+          Tier 5: Subtopic (Completion Leaf)
+"""
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+GroundingStatusType = Literal["verified", "needs_review", "unverified", "review_required"]
+EnrollmentStatusType = Literal["mandatory", "selected", "excluded", "pending"]
+
+
 class Subtopic(BaseModel):
-    """Leaf checklist item representing a granular course concept or lecture topic."""
+    """Tier 5: Leaf checklist item representing a granular course concept or lecture topic."""
     model_config = ConfigDict(strict=False, extra="forbid")
 
     id: str = Field(..., min_length=1, description="Stable unique ID within syllabus")
     title: str = Field(..., min_length=1, description="Non-empty title of subtopic")
     source_text: str = Field(..., min_length=1, description="Verbatim source text snippet")
     source_page: Optional[int] = Field(default=None, description="1-based page number if available")
-    source_location: Optional[Union[str, Dict]] = Field(default=None, description="Section, heading, or paragraph location")
+    source_location: Optional[Union[str, Dict[str, Any]]] = Field(default=None, description="Section, heading, or paragraph location")
     source_document_id: Optional[str] = Field(default=None, description="Reference to ingestion document")
-    evidence_status: Literal["verified", "needs_review", "unverified"] = Field(
+    evidence_status: GroundingStatusType = Field(
         default="verified", description="Grounding verification status"
     )
-    grounding_status: Optional[str] = Field(
+    grounding_status: Optional[GroundingStatusType] = Field(
         default=None, description="Grounding verification status alias"
     )
+    source_start_offset: Optional[int] = Field(default=None, description="Start char offset in canonical document")
+    source_end_offset: Optional[int] = Field(default=None, description="End char offset in canonical document")
     order_index: int = Field(default=0, ge=0)
 
     @field_validator("grounding_status", mode="before")
     @classmethod
-    def populate_grounding_status(cls, v, info):
+    def populate_grounding_status(cls, v: Any) -> Any:
         return v
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: Any) -> None:
         if self.grounding_status is None:
             self.grounding_status = self.evidence_status
         elif self.evidence_status is None:
-            self.evidence_status = self.grounding_status  # type: ignore
+            self.evidence_status = self.grounding_status
 
     @field_validator("id", "title", "source_text")
     @classmethod
@@ -49,14 +64,22 @@ class Subtopic(BaseModel):
             raise ValueError("source_page must be a positive 1-based integer")
         return v
 
+    @field_validator("source_start_offset", "source_end_offset")
+    @classmethod
+    def validate_non_negative_offset(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 0:
+            raise ValueError("Offset must be non-negative")
+        return v
+
 
 class Module(BaseModel):
-    """Module or Unit within a Subject."""
+    """Tier 4: Module or Unit within a Subject."""
     model_config = ConfigDict(strict=False, extra="forbid")
 
     id: str = Field(..., min_length=1)
     module_number: Optional[str] = Field(default=None)
     title: str = Field(..., min_length=1)
+    contact_hours: Optional[int] = Field(default=None, ge=0, description="Informational contact hours")
     topics: List[Subtopic] = Field(default_factory=list)
     order_index: int = Field(default=0, ge=0)
 
@@ -82,12 +105,20 @@ class Module(BaseModel):
 
 
 class Subject(BaseModel):
-    """Subject or Course within a Semester."""
+    """Tier 3: Course or Subject within a Semester."""
     model_config = ConfigDict(strict=False, extra="forbid")
 
     id: str = Field(..., min_length=1)
     code: Optional[str] = Field(default=None)
     title: str = Field(..., min_length=1)
+    is_lab: bool = Field(default=False, description="Laboratory, practical, workshop, or sessional course")
+    is_elective: bool = Field(default=False, description="Whether this is an elective course")
+    elective_group: Optional[str] = Field(default=None, description="Category or group label for elective course")
+    is_enrolled: bool = Field(default=True, description="Whether student is actively enrolled in this course")
+    enrollment_status: EnrollmentStatusType = Field(
+        default="mandatory",
+        description="Enrollment classification: mandatory, selected, excluded, pending",
+    )
     modules: List[Module] = Field(default_factory=list)
     order_index: int = Field(default=0, ge=0)
 
@@ -106,11 +137,12 @@ class Topic(Module):
 
 
 class Semester(BaseModel):
-    """Semester within an academic year."""
+    """Tier 2: Semester within an Academic Year."""
     model_config = ConfigDict(strict=False, extra="forbid")
 
     id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
+    semester_number: Optional[int] = Field(default=None, ge=1)
     subjects: List[Subject] = Field(default_factory=list)
     order_index: int = Field(default=0, ge=0)
 
@@ -118,10 +150,8 @@ class Semester(BaseModel):
     @classmethod
     def migrate_legacy_topics(cls, data: Any) -> Any:
         if isinstance(data, dict):
-            # If subjects already provided, use it
             if "subjects" in data and data["subjects"]:
                 return data
-            # If legacy topics provided, migrate them into subjects
             if "topics" in data and data["topics"]:
                 legacy_topics = data.pop("topics")
                 subjects = []
@@ -169,11 +199,12 @@ class Semester(BaseModel):
 
 
 class AcademicYear(BaseModel):
-    """Academic year grouping."""
+    """Tier 1: Academic Year grouping."""
     model_config = ConfigDict(strict=False, extra="forbid")
 
     id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
+    year_number: Optional[int] = Field(default=None, ge=1)
     semesters: List[Semester] = Field(default_factory=list)
     order_index: int = Field(default=0, ge=0)
 
@@ -186,22 +217,35 @@ class AcademicYear(BaseModel):
         return s
 
 
+Year = AcademicYear
+
+
 class HierarchicalSyllabus(BaseModel):
-    """Root syllabus entity representing a degree, program, or course curriculum."""
+    """Root Document Container representing a degree, program, or course curriculum."""
     model_config = ConfigDict(strict=False, extra="forbid")
 
     id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
     years: List[AcademicYear] = Field(default_factory=list)
     content_hash: Optional[str] = Field(default=None)
+    source_file_hash: Optional[str] = Field(default=None)
+    source_filename: str = Field(..., min_length=1)
+    source_file_type: str = Field(default="pdf")
+    extraction_status: str = Field(default="completed")
+    requires_enrollment_confirmation: bool = Field(default=False)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     updated_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
-    source_filename: str = Field(..., min_length=1)
     schema_version: int = Field(default=2)
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.source_file_hash is None and self.content_hash is not None:
+            self.source_file_hash = self.content_hash
+        elif self.content_hash is None and self.source_file_hash is not None:
+            self.content_hash = self.source_file_hash
 
     @field_validator("id", "title", "source_filename")
     @classmethod
@@ -249,10 +293,21 @@ class SyllabusSummary(BaseModel):
 
 class LeafToggleRequest(BaseModel):
     """Payload to toggle or set a single leaf subtopic completion."""
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=False)
 
     leaf_id: str = Field(..., min_length=1)
-    is_completed: bool
+    is_completed: Optional[bool] = None
+    completed: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_completed(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "completed" in data and "is_completed" not in data:
+                data["is_completed"] = data["completed"]
+            elif "is_completed" in data and "completed" not in data:
+                data["completed"] = data["is_completed"]
+        return data
 
     @field_validator("leaf_id")
     @classmethod
@@ -262,17 +317,34 @@ class LeafToggleRequest(BaseModel):
             raise ValueError("leaf_id must not be empty")
         return s
 
-
-Year = AcademicYear
+    @property
+    def target_completed(self) -> bool:
+        if self.is_completed is not None:
+            return self.is_completed
+        if self.completed is not None:
+            return self.completed
+        return True
 
 
 class BulkToggleRequest(BaseModel):
     """Payload to set completion state for an entire branch or list of leaves."""
     model_config = ConfigDict(strict=False)
 
+    node_type: Optional[str] = None
     node_id: Optional[str] = None
     leaf_ids: Optional[List[str]] = None
-    is_completed: bool
+    is_completed: Optional[bool] = None
+    completed: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_completed(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "completed" in data and "is_completed" not in data:
+                data["is_completed"] = data["completed"]
+            elif "is_completed" in data and "completed" not in data:
+                data["completed"] = data["is_completed"]
+        return data
 
     @field_validator("node_id")
     @classmethod
@@ -283,6 +355,14 @@ class BulkToggleRequest(BaseModel):
                 raise ValueError("node_id cannot be whitespace only")
             return s
         return None
+
+    @property
+    def target_completed(self) -> bool:
+        if self.is_completed is not None:
+            return self.is_completed
+        if self.completed is not None:
+            return self.completed
+        return True
 
 
 class SyllabusRenameRequest(BaseModel):
@@ -300,6 +380,28 @@ class SyllabusRenameRequest(BaseModel):
         return s
 
 
+# --- Elective Onboarding Workflow Schemas ---
+
+class ParseReviewResponse(BaseModel):
+    """Response returned for review before finalizing elective enrollment."""
+    model_config = ConfigDict(strict=False)
+
+    syllabus_id: str
+    title: str
+    detected_electives: List[Subject] = Field(default_factory=list)
+    elective_groups: Dict[str, List[Subject]] = Field(default_factory=dict)
+    years: List[AcademicYear] = Field(default_factory=list)
+    requires_enrollment_confirmation: bool = False
+    extraction_warnings: List[str] = Field(default_factory=list)
+
+
+class FinalizeEnrollmentRequest(BaseModel):
+    """Request payload containing confirmed enrolled subject IDs."""
+    model_config = ConfigDict(strict=False)
+
+    enrolled_subject_ids: List[str] = Field(default_factory=list)
+
+
 # --- Structured LLM Extraction Schemas ---
 
 class ExtractedSubtopic(BaseModel):
@@ -307,6 +409,8 @@ class ExtractedSubtopic(BaseModel):
     title: str = Field(..., description="Title or concept name of the subtopic")
     source_text: str = Field(..., description="Exact verbatim text snippet from the document")
     source_page: Optional[int] = Field(default=None, description="Page number where snippet occurs, if known")
+    source_start_offset: Optional[int] = Field(default=None, description="Start offset in source text")
+    source_end_offset: Optional[int] = Field(default=None, description="End offset in source text")
     source_location: Optional[str] = Field(default=None, description="Section, heading, or paragraph location")
 
 
@@ -314,6 +418,7 @@ class ExtractedModule(BaseModel):
     """Module or Unit within a Course/Subject."""
     title: str = Field(..., description="Module or unit title, e.g. 'Unit 1: Data Structures'")
     module_number: Optional[str] = Field(default=None, description="Unit/module label or number, e.g. 'Unit I', 'Module 1'")
+    contact_hours: Optional[int] = Field(default=None, ge=0, description="Explicit contact hours for module if specified")
     topics: List[ExtractedSubtopic] = Field(default_factory=list, description="Leaf subtopics/concepts")
 
     @model_validator(mode="before")
@@ -333,6 +438,9 @@ class ExtractedSubject(BaseModel):
     """Subject or Course within a Semester."""
     title: str = Field(..., description="Course or subject title, e.g. 'Computer Science 101'")
     code: Optional[str] = Field(default=None, description="Subject code, e.g. 'CS101'")
+    is_lab: bool = Field(default=False, description="Whether this is a laboratory, practical, workshop, or sessional course")
+    is_elective: bool = Field(default=False, description="Whether this is an elective course requiring student choice")
+    elective_group: Optional[str] = Field(default=None, description="Group or bucket name, e.g. 'Elective I', 'Group A'")
     modules: List[ExtractedModule] = Field(default_factory=list, description="List of modules/units")
 
 
@@ -425,5 +533,6 @@ class JobProgressResponse(BaseModel):
     stage: str
     percent: int
     message: str
+    syllabus_id: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
