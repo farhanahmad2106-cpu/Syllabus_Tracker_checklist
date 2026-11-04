@@ -47,3 +47,14 @@ class ExtractionError(SyllabusTrackerError):
 class HierarchyValidationError(SyllabusTrackerError):
     """Raised when the extracted curriculum violates hierarchy rules or grounding invariants."""
     pass
+
+
+class SSRFProtectionError(SyllabusTrackerError):
+    """Raised when an outbound URL violates SSRF, private IP, scheme, or DNS policies."""
+    pass
+
+
+class ScraperError(SyllabusTrackerError):
+    """Raised when web scraping, acquisition, or document detection fails."""
+    pass
+

@@ -9,8 +9,10 @@ import type {
   BackupRestoreResult,
   ExportOptions,
   HealthResponse,
+  IngestUrlPayload,
   PacingMetrics,
   ParseReviewResponse,
+  ScrapePreview,
   SetTargetDatePayload,
   StartUploadResponse,
   SyllabusPacingSummary,
@@ -617,5 +619,93 @@ export async function restoreSyllabusBackupFile(
   });
   return handleResponse<BackupRestoreResult>(res);
 }
+
+// --- Option-C: Web Scraper & URL Ingestion API Methods ---
+
+export async function previewScrapeUrl(
+  payload: IngestUrlPayload,
+  signal?: AbortSignal
+): Promise<ScrapePreview> {
+  const res = await fetch(`${API_BASE}/scrape/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  return handleResponse<ScrapePreview>(res);
+}
+
+export async function startScrapeJob(
+  payload: IngestUrlPayload,
+  options?: { signal?: AbortSignal }
+): Promise<StartUploadResponse> {
+  const res = await fetch(`${API_BASE}/scrape/ingest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: options?.signal,
+  });
+  return handleResponse<StartUploadResponse>(res);
+}
+
+export async function ingestSyllabusUrl(
+  payload: IngestUrlPayload,
+  options?: UploadOptions
+): Promise<SyllabusResponse> {
+  const job = await startScrapeJob(payload, { signal: options?.signal });
+
+  if (options?.onProgress) {
+    options.onProgress({
+      job_id: job.job_id,
+      stage: job.stage,
+      percent: job.percent,
+      message: job.message,
+      result: null,
+      error: null,
+    });
+  }
+
+  return new Promise<SyllabusResponse>((resolve, reject) => {
+    let unsubscribe: (() => void) | null = null;
+
+    const onAbort = () => {
+      if (unsubscribe) unsubscribe();
+      cancelUploadJob(job.job_id).catch(() => {});
+      reject(
+        new ApiError(499, 'Web ingestion was cancelled by user.', 'IngestionCancelled', 'INGESTION_CANCELLED', true)
+      );
+    };
+
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        cancelUploadJob(job.job_id).catch(() => {});
+        reject(
+          new ApiError(499, 'Web ingestion was cancelled by user.', 'IngestionCancelled', 'INGESTION_CANCELLED', true)
+        );
+        return;
+      }
+      options.signal.addEventListener('abort', onAbort);
+    }
+
+    unsubscribe = subscribeUploadProgress(job.job_id, {
+      onProgress: (p) => {
+        options?.onProgress?.(p);
+      },
+      onComplete: (res) => {
+        if (options?.signal) {
+          options.signal.removeEventListener('abort', onAbort);
+        }
+        resolve(res);
+      },
+      onError: (err) => {
+        if (options?.signal) {
+          options.signal.removeEventListener('abort', onAbort);
+        }
+        reject(err);
+      },
+    });
+  });
+}
+
 
 

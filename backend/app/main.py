@@ -50,6 +50,8 @@ from backend.app.exceptions import (
     HierarchyValidationError,
     InvalidLeafError,
     InvalidNodeError,
+    ScraperError,
+    SSRFProtectionError,
     SyllabusNotFoundError,
     SyllabusTrackerError,
 )
@@ -73,9 +75,11 @@ from backend.app.schemas import (
     BackupRestoreRequest,
     BackupRestoreResult,
     BulkToggleRequest,
+    EmbeddedDocumentPreview,
     ExportOptions,
     FinalizeEnrollmentRequest,
     HierarchicalSyllabus,
+    IngestUrlRequest,
     JobProgressResponse,
     LeafToggleRequest,
     NoteResponse,
@@ -83,6 +87,7 @@ from backend.app.schemas import (
     ParseReviewResponse,
     ResourceResponse,
     SaveNoteRequest,
+    ScrapePreviewResponse,
     SetTargetDateRequest,
     StartUploadResponse,
     SyllabusPacingSummaryResponse,
@@ -96,10 +101,11 @@ from backend.app.services.export_service import (
     generate_json_backup,
     generate_markdown_export,
 )
-from backend.app.services.ingestion import ingest_syllabus_document, process_ingestion_job
+from backend.app.services.ingestion import ingest_syllabus_document, process_ingestion_job, process_web_ingestion_job
 from backend.app.services.job_manager import job_manager
 from backend.app.services.pacing import calculate_node_pacing, find_node_in_syllabus
 from backend.app.services.restore_service import restore_backup
+from backend.app.services.web_scraper import fetch_web_content, validate_safe_url
 
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger(__name__)
@@ -195,6 +201,22 @@ async def extraction_error_handler(request, exc: ExtractionError):
     )
 
 
+@app.exception_handler(SSRFProtectionError)
+async def ssrf_protection_handler(request, exc: SSRFProtectionError):
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"detail": str(exc), "error_type": "SSRFProtectionError"},
+    )
+
+
+@app.exception_handler(ScraperError)
+async def scraper_error_handler(request, exc: ScraperError):
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": str(exc), "error_type": "ScraperError"},
+    )
+
+
 # --- API Routes ---
 
 # --- Operational & Health Routes ---
@@ -283,6 +305,7 @@ def get_app_config() -> AppConfigResponse:
             "leaf_only_persistence": True,
             "dual_provider_extraction": True,
             "elective_onboarding": True,
+            "web_scraping": True,
         },
         app_version="2.0.0",
         schema_version=2,
@@ -556,6 +579,119 @@ def cancel_upload_job(job_id: str):
         "status": "cancellation_requested",
         "success": success,
     }
+
+
+# --- Option-C: Automated Web Scraper Endpoints ---
+
+@app.post("/api/scrape/preview", response_model=ScrapePreviewResponse)
+async def preview_scrape_url(payload: IngestUrlRequest):
+    """
+    Read-only preview endpoint:
+    - Normalizes and validates URL against SSRF and private IP policies.
+    - Connects safely and acquires HTML or direct document.
+    - Discovers relevant embedded PDF/DOCX syllabus documents.
+    - Generates cleaned content preview.
+    - Does NOT execute LLM extraction or persist any database records.
+    """
+    try:
+        scraped = await fetch_web_content(
+            url=payload.url,
+            follow_embedded_pdf=False,  # Preview does not auto-follow so user sees discovered choices
+            selected_document_url=payload.selected_document_url,
+        )
+    except SSRFProtectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except ScraperError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+
+    # Build preview snippet (max 1200 chars)
+    if scraped.source_kind in ("pdf", "docx"):
+        content_preview = f"Direct downloadable {scraped.source_kind.upper()} document: {scraped.binary_filename}"
+    else:
+        content_preview = (scraped.html_markdown or "")[:1200]
+        if len(scraped.html_markdown or "") > 1200:
+            content_preview += "..."
+
+    embedded_previews = [
+        EmbeddedDocumentPreview(
+            url=doc.url,
+            filename=doc.filename,
+            document_type=doc.document_type,
+            relevance_score=doc.relevance_score,
+            relevance_label=doc.relevance_label,
+            display_title=doc.display_title,
+        )
+        for doc in scraped.embedded_documents
+    ]
+
+    import hashlib
+    token_material = f"{scraped.final_url}|{payload.selected_document_url or ''}|{scraped.resolved_title}"
+    preview_token = hashlib.sha256(token_material.encode("utf-8")).hexdigest()[:24]
+
+    return ScrapePreviewResponse(
+        url=scraped.requested_url,
+        final_url=scraped.final_url,
+        resolved_title=scraped.resolved_title,
+        content_type=scraped.content_type,
+        source_kind=scraped.source_kind,
+        detected_embedded_files=embedded_previews,
+        content_preview=content_preview,
+        warnings=scraped.warnings,
+        requires_document_selection=scraped.requires_document_selection,
+        preview_token=preview_token,
+    )
+
+
+@app.post("/api/scrape/ingest", status_code=status.HTTP_202_ACCEPTED, response_model=StartUploadResponse)
+async def ingest_scrape_url(payload: IngestUrlRequest):
+    """
+    Asynchronous web ingestion endpoint:
+    - Re-validates URL syntax and SSRF policies.
+    - Registers background job with job_manager.
+    - Dispatches asynchronous worker task (process_web_ingestion_job).
+    - Returns 202 Accepted with job_id for real-time SSE progress tracking.
+    """
+    try:
+        validated_url = validate_safe_url(payload.url)
+        if payload.selected_document_url:
+            validate_safe_url(payload.selected_document_url)
+    except SSRFProtectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    display_title = payload.custom_title or payload.url
+    job = job_manager.create_job(
+        initial_message=f"Web syllabus ingestion accepted for '{display_title}'. Queued for processing.",
+    )
+
+    async def _run_web_worker():
+        async with upload_semaphore:
+            await asyncio.to_thread(
+                process_web_ingestion_job,
+                job_id=job.job_id,
+                url=validated_url,
+                follow_embedded_pdf=payload.follow_embedded_pdf,
+                custom_title=payload.custom_title,
+                selected_document_url=payload.selected_document_url,
+            )
+
+    asyncio.create_task(_run_web_worker())
+
+    return StartUploadResponse(
+        job_id=job.job_id,
+        stage=job.stage,
+        percent=job.percent,
+        message=job.message,
+    )
+
 
 
 @app.get("/api/syllabus/{syllabus_id}/review", response_model=ParseReviewResponse)

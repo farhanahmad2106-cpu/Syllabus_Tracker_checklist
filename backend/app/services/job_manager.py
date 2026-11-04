@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 VALID_STAGES: Set[str] = {
     "queued",
     "validating",
+    "fetching",
     "extracting_text",
     "parsing",
     "cleaning",

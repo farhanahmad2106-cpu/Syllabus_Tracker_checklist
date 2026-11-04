@@ -302,3 +302,253 @@ def process_ingestion_job(
             error=str(exc),
             message=f"Processing failed: {str(exc)}",
         )
+
+
+def process_web_ingestion_job(
+    job_id: str,
+    url: str,
+    follow_embedded_pdf: bool = True,
+    custom_title: Optional[str] = None,
+    selected_document_url: Optional[str] = None,
+    allow_fallback_extraction: bool = True,
+    model_override: Optional[str] = None,
+) -> None:
+    """
+    Asynchronous background job worker executing the complete web scraping ingestion pipeline:
+    - Stage: validating (0-10%)
+    - Stage: fetching (10-25%)
+    - Stage: parsing / cleaning (25-35%)
+    - Stage: chunking (35-40%)
+    - Stage: extracting (40-85%)
+    - Stage: validating_result (85-95%)
+    - Stage: persisting (95-99%)
+    - Stage: completed (100%) or awaiting_enrollment
+    """
+    import asyncio
+    from backend.app.parser import ParsedDocument
+    from backend.app.services.web_scraper import fetch_web_content
+
+    logger.info("web_ingestion_job.started job_id=%s url=%s", job_id, url)
+    start_time = time.time()
+
+    def check_cancel() -> bool:
+        if job_manager.is_cancel_requested(job_id):
+            logger.info("web_ingestion_job.cancelled job_id=%s", job_id)
+            job_manager.mark_cancelled(job_id, "Processing was cancelled by user.")
+            return True
+        return False
+
+    try:
+        if check_cancel():
+            return
+
+        # Stage: validating (0-10%)
+        job_manager.update(
+            job_id=job_id,
+            stage="validating",
+            percent=5,
+            message="Validating target URL and SSRF network security policies.",
+        )
+
+        # Stage: fetching (10-25%)
+        job_manager.update(
+            job_id=job_id,
+            stage="fetching",
+            percent=15,
+            message="Acquiring web content and discovering embedded syllabus documents.",
+        )
+
+        # Execute safe fetch
+        scraped = asyncio.run(
+            fetch_web_content(
+                url=url,
+                follow_embedded_pdf=follow_embedded_pdf,
+                selected_document_url=selected_document_url,
+            )
+        )
+
+        if check_cancel():
+            return
+
+        display_filename = custom_title or scraped.resolved_title or "Web Syllabus"
+        source_url = scraped.final_url
+
+        # Stage: parsing / cleaning (25-35%)
+        if scraped.source_kind in ("pdf", "docx") and scraped.binary_content:
+            job_manager.update(
+                job_id=job_id,
+                stage="parsing",
+                percent=25,
+                message=f"Parsing downloaded {scraped.source_kind.upper()} syllabus document.",
+            )
+            parsed_doc = parse_uploaded_file(
+                scraped.binary_content,
+                scraped.binary_filename or f"document.{scraped.source_kind}",
+            )
+            file_bytes = scraped.binary_content
+        else:
+            job_manager.update(
+                job_id=job_id,
+                stage="cleaning",
+                percent=25,
+                message="Cleaning HTML and extracting structural curriculum tables and headings.",
+            )
+            md_text = scraped.html_markdown or ""
+            parsed_doc = ParsedDocument(
+                text=md_text,
+                raw_text=scraped.raw_html or md_text,
+                pages=[(None, md_text)],
+                has_reliable_pages=False,
+                source_filename=display_filename,
+            )
+            file_bytes = md_text.encode("utf-8")
+
+        if check_cancel():
+            return
+
+        job_manager.update(
+            job_id=job_id,
+            stage="parsing",
+            percent=30,
+            message=f"Successfully extracted {len(parsed_doc.text):,} characters from web source.",
+        )
+
+        # Stage: chunking (35-40%)
+        job_manager.update(
+            job_id=job_id,
+            stage="chunking",
+            percent=35,
+            message="Detecting academic semester and course boundaries.",
+        )
+
+        chunks = detect_semantic_chunks(parsed_doc)
+        total_chunks = len(chunks)
+        job_manager.update(
+            job_id=job_id,
+            stage="chunking",
+            percent=40,
+            message=f"Divided curriculum into {total_chunks} semantic section(s).",
+        )
+
+        if check_cancel():
+            return
+
+        # Stage: extracting (40-85%)
+        def on_chunk_progress(pct: int, msg: str) -> None:
+            job_manager.update(
+                job_id=job_id,
+                stage="extracting",
+                percent=pct,
+                message=msg,
+            )
+
+        extracted = process_chunks_with_progress(
+            chunks=chunks,
+            source_filename=display_filename,
+            on_progress=on_chunk_progress,
+            is_cancelled=lambda: job_manager.is_cancel_requested(job_id),
+            allow_fallback=allow_fallback_extraction,
+            model_override=model_override,
+            extract_fn=extract_curriculum,
+        )
+
+        if check_cancel():
+            return
+
+        # Stage: validating_result (85-95%)
+        job_manager.update(
+            job_id=job_id,
+            stage="validating_result",
+            percent=88,
+            message="Canonicalizing 5-level hierarchy and verifying verbatim source evidence.",
+        )
+
+        content_hash = hashlib.sha256(file_bytes).hexdigest()
+        from backend.app.database import get_syllabus_by_hash
+        with get_db_context() as session:
+            existing_rec = get_syllabus_by_hash(session, content_hash)
+            syllabus_id = existing_rec.id if existing_rec else f"syl_{uuid.uuid4().hex[:12]}"
+
+        canonical_syllabus, warnings = canonicalize_extracted_curriculum(
+            extracted=extracted,
+            source_filename=display_filename,
+            source_document_text=parsed_doc.raw_text or parsed_doc.text,
+            syllabus_id=syllabus_id,
+        )
+        canonical_syllabus.content_hash = content_hash
+        canonical_syllabus.source_type = "url"
+        canonical_syllabus.source_url = source_url
+        if custom_title:
+            canonical_syllabus.title = custom_title
+
+        # Combine warnings from scraping
+        if scraped.warnings:
+            warnings.extend(scraped.warnings)
+
+        job_manager.update(
+            job_id=job_id,
+            stage="validating_result",
+            percent=95,
+            message="Hierarchy validated. Preparing database transaction.",
+        )
+
+        if check_cancel():
+            return
+
+        # Stage: persisting (95-99%)
+        job_manager.update(
+            job_id=job_id,
+            stage="persisting",
+            percent=97,
+            message="Saving verified syllabus and hierarchy to SQLite.",
+        )
+
+        with get_db_context() as session:
+            save_syllabus(session, canonical_syllabus, warnings=warnings, content_hash=content_hash)
+            completed_ids = get_completed_leaf_ids(session, canonical_syllabus.id)
+            prog, node_prog = calculate_syllabus_progress(canonical_syllabus, completed_ids)
+
+            response = SyllabusResponse(
+                syllabus=canonical_syllabus,
+                completed_leaf_ids=list(completed_ids),
+                progress=prog,
+                node_progress=node_prog,
+                warnings=warnings,
+            )
+
+        duration = time.time() - start_time
+        logger.info(
+            "web_ingestion_job.completed job_id=%s syllabus_id=%s duration=%.2fs",
+            job_id,
+            canonical_syllabus.id,
+            duration,
+        )
+        final_stage = "awaiting_enrollment" if canonical_syllabus.requires_enrollment_confirmation else "completed"
+        final_msg = (
+            f"Curriculum extracted. Elective confirmation required for '{canonical_syllabus.title}'."
+            if canonical_syllabus.requires_enrollment_confirmation
+            else f"Syllabus '{canonical_syllabus.title}' ingested successfully from web in {duration:.1f}s."
+        )
+
+        job_manager.update(
+            job_id=job_id,
+            stage=final_stage,
+            percent=100,
+            syllabus_id=canonical_syllabus.id,
+            message=final_msg,
+            result=response.model_dump(),
+        )
+
+    except Exception as exc:
+        if job_manager.is_cancel_requested(job_id):
+            logger.info("web_ingestion_job.cancelled_on_exception job_id=%s", job_id)
+            job_manager.mark_cancelled(job_id, "Processing was cancelled by user.")
+            return
+
+        logger.error("web_ingestion_job.failed job_id=%s error=%s", job_id, exc, exc_info=True)
+        job_manager.mark_failed(
+            job_id=job_id,
+            error=str(exc),
+            message=f"Processing failed: {str(exc)}",
+        )
+

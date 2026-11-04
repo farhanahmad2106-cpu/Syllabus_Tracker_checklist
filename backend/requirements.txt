@@ -13,3 +13,5 @@ docling==2.142.1
 python-docx==1.2.0
 pypdf==6.21.2
 python-dotenv==1.2.4
+beautifulsoup4==4.12.3
+lxml==5.3.0

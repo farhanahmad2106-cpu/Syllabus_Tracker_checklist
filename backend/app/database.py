@@ -82,6 +82,14 @@ def init_db(db_engine: Optional[Engine] = None) -> None:
                 conn.execute(text("ALTER TABLE syllabi ADD COLUMN content_hash VARCHAR(64)"))
                 conn.commit()
 
+            if "source_type" not in columns:
+                conn.execute(text("ALTER TABLE syllabi ADD COLUMN source_type VARCHAR(32) DEFAULT 'upload'"))
+                conn.commit()
+
+            if "source_url" not in columns:
+                conn.execute(text("ALTER TABLE syllabi ADD COLUMN source_url VARCHAR(2048)"))
+                conn.commit()
+
             # Ensure target_deadlines table is created if running against existing database
             table_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='target_deadlines'"))
             if not table_check.fetchone():
@@ -156,6 +164,8 @@ def save_syllabus(
         # Update existing record in-place preserving its completions
         existing.title = syllabus.title
         existing.source_filename = syllabus.source_filename
+        existing.source_type = getattr(syllabus, "source_type", "upload") or "upload"
+        existing.source_url = getattr(syllabus, "source_url", None)
         existing.content_hash = eff_hash
         existing.schema_version = syllabus.schema_version
         existing.hierarchy_json = syllabus.model_dump_json()
@@ -168,6 +178,8 @@ def save_syllabus(
         id=syllabus.id,
         title=syllabus.title,
         source_filename=syllabus.source_filename,
+        source_type=getattr(syllabus, "source_type", "upload") or "upload",
+        source_url=getattr(syllabus, "source_url", None),
         content_hash=eff_hash,
         schema_version=syllabus.schema_version,
         hierarchy_json=syllabus.model_dump_json(),
@@ -222,6 +234,8 @@ def list_syllabi_summaries(session: Session) -> List[SyllabusSummary]:
                 created_at=r.created_at.isoformat(),
                 updated_at=r.updated_at.isoformat(),
                 source_filename=r.source_filename,
+                source_type=getattr(r, "source_type", "upload") or "upload",
+                source_url=getattr(r, "source_url", None),
                 progress=prog,
                 leaf_count=len(all_leaves),
             )

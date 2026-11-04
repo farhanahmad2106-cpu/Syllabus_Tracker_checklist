@@ -10,6 +10,7 @@ import {
   fetchSyllabusPacing,
   fetchSyllabusResources,
   finalizeEnrollment,
+  ingestSyllabusUrl,
   renameSyllabus,
   setNodeDeadline,
   toggleBranch,
@@ -24,6 +25,7 @@ import {
 } from '../lib/progress';
 import type {
   HealthResponse,
+  IngestUrlPayload,
   PacingMetrics,
   ParseReviewResponse,
   SetTargetDatePayload,
@@ -256,6 +258,55 @@ export function useSyllabus() {
     }
   }, [refreshList, refreshPacing, refreshNotesAndResources]);
 
+  const ingestUrl = useCallback(async (payload: IngestUrlPayload) => {
+    const controller = new AbortController();
+    setActiveUploadController(controller);
+    setIsUploading(true);
+    setUploadProgress({
+      job_id: '',
+      stage: 'queued',
+      percent: 0,
+      message: `Fetching syllabus from ${payload.url}...`,
+      result: null,
+      error: null,
+    });
+    setError(null);
+    try {
+      const result = await ingestSyllabusUrl(payload, {
+        signal: controller.signal,
+        onProgress: (p) => {
+          setUploadProgress(p);
+        },
+      });
+
+      activeSyllabusIdRef.current = result.syllabus.id;
+      setActiveSyllabus(result);
+      await refreshList();
+      await refreshPacing(result.syllabus.id);
+      await refreshNotesAndResources(result.syllabus.id);
+
+      if (result.syllabus.requires_enrollment_confirmation) {
+        try {
+          const review = await fetchParseReview(result.syllabus.id);
+          setReviewData(review);
+          setShowElectiveModal(true);
+        } catch {
+          // Non-blocking fallback
+        }
+      }
+
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Web scraping and extraction failed';
+      setError(msg);
+      throw err;
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(null);
+      setActiveUploadController(null);
+    }
+  }, [refreshList, refreshPacing, refreshNotesAndResources]);
+
   const handleToggleLeaf = useCallback(async (leafId: string, isCompleted: boolean) => {
     if (!activeSyllabus) return;
     const prev = activeSyllabus;
@@ -451,6 +502,7 @@ export function useSyllabus() {
     refreshNotesAndResources,
     selectSyllabus,
     uploadFile,
+    ingestUrl,
     cancelUpload,
     handleToggleLeaf,
     handleToggleBranch,

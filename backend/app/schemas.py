@@ -232,6 +232,8 @@ class HierarchicalSyllabus(BaseModel):
     source_file_hash: Optional[str] = Field(default=None)
     source_filename: str = Field(..., min_length=1)
     source_file_type: str = Field(default="pdf")
+    source_type: Optional[str] = Field(default="upload", description="'upload' or 'url'")
+    source_url: Optional[str] = Field(default=None, description="Original source URL if ingested from web")
     extraction_status: str = Field(default="completed")
     requires_enrollment_confirmation: bool = Field(default=False)
     created_at: str = Field(
@@ -329,6 +331,8 @@ class SyllabusSummary(BaseModel):
     created_at: str
     updated_at: str
     source_filename: str
+    source_type: Optional[str] = Field(default="upload")
+    source_url: Optional[str] = Field(default=None)
     progress: ProgressSummary
     leaf_count: int
 
@@ -699,5 +703,60 @@ class BackupEnvelope(BaseModel):
     notes: Dict[str, str] = Field(default_factory=dict)
     resources: List[Dict[str, Any]] = Field(default_factory=list)
     deadlines: Dict[str, Any] = Field(default_factory=dict)
+
+
+# --- Option-C: Web Scraper & URL Ingestion Schemas ---
+
+class EmbeddedDocumentPreview(BaseModel):
+    """Preview of a discovered downloadable syllabus document."""
+    model_config = ConfigDict(strict=False)
+
+    url: str
+    filename: str
+    document_type: str
+    relevance_score: float = 0.0
+    relevance_label: str = "Medium"
+    display_title: str
+
+
+class ScrapePreviewResponse(BaseModel):
+    """Read-only preview of scraped web page or direct document."""
+    model_config = ConfigDict(strict=False)
+
+    url: str
+    final_url: str
+    resolved_title: str
+    content_type: str
+    source_kind: str
+    detected_embedded_files: List[EmbeddedDocumentPreview] = Field(default_factory=list)
+    content_preview: str = ""
+    warnings: List[str] = Field(default_factory=list)
+    requires_document_selection: bool = False
+    preview_token: Optional[str] = None
+
+
+class IngestUrlRequest(BaseModel):
+    """Request payload to initiate automated syllabus web ingestion."""
+    model_config = ConfigDict(strict=False)
+
+    url: str = Field(..., min_length=1)
+    follow_embedded_pdf: bool = True
+    custom_title: Optional[str] = None
+    selected_document_url: Optional[str] = None
+    preview_token: Optional[str] = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url_syntax(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("URL cannot be empty")
+        parsed = urlparse(s)
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("Only http:// and https:// URLs are supported")
+        if not parsed.hostname:
+            raise ValueError("URL must include a valid hostname")
+        return s
+
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

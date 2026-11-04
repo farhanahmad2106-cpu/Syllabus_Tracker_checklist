@@ -134,6 +134,8 @@ class SyllabusRecord(Base):
     id = Column(String(64), primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     source_filename = Column(String(255), nullable=False)
+    source_type = Column(String(32), default="upload", nullable=False)
+    source_url = Column(String(2048), nullable=True)
     content_hash = Column(String(64), nullable=True, index=True)
     schema_version = Column(Integer, default=2, nullable=False)
     hierarchy_json = Column(Text, nullable=False)

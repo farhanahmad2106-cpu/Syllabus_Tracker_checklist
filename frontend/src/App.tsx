@@ -3,6 +3,8 @@ import {
   BookOpen,
   Cpu,
   Edit2,
+  ExternalLink,
+  Globe,
   GraduationCap,
   Menu,
   PanelLeftClose,
@@ -39,6 +41,7 @@ export const App: React.FC = () => {
     refreshHealth,
     selectSyllabus,
     uploadFile,
+    ingestUrl,
     cancelUpload,
     handleToggleLeaf,
     handleToggleBranch,
@@ -361,6 +364,27 @@ export const App: React.FC = () => {
                               {activeSyllabus.syllabus.title}
                             </span>
                           )}
+                        {activeSyllabus.syllabus.source_type === 'url' && (
+                          <span
+                            data-testid="web-source-badge"
+                            className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-teal-950 text-teal-300 border border-teal-800/60 font-medium"
+                          >
+                            <Globe className="w-3 h-3 text-teal-400" />
+                            <span>Web Source</span>
+                            {activeSyllabus.syllabus.source_url && (
+                              <a
+                                href={activeSyllabus.syllabus.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-teal-400 hover:text-teal-200 ml-0.5 inline-flex items-center"
+                                title="Open original syllabus web page"
+                                aria-label="Open original syllabus web page"
+                              >
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={startRename}
@@ -478,6 +502,10 @@ export const App: React.FC = () => {
             <FileUpload
               onUpload={async (file) => {
                 await uploadFile(file);
+                setShowUploadModal(false);
+              }}
+              onIngestUrl={async (payload) => {
+                await ingestUrl(payload);
                 setShowUploadModal(false);
               }}
               isUploading={isUploading}

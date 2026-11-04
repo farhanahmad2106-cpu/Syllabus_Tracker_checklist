@@ -78,6 +78,8 @@ export interface HierarchicalSyllabus {
   created_at: string;
   updated_at: string;
   source_filename: string;
+  source_type?: 'upload' | 'url';
+  source_url?: string | null;
   schema_version: number;
   content_hash?: string | null;
   source_file_hash?: string | null;
@@ -106,6 +108,8 @@ export interface SyllabusSummary {
   created_at: string;
   updated_at: string;
   source_filename: string;
+  source_type?: 'upload' | 'url';
+  source_url?: string | null;
   progress: ProgressSummary;
   leaf_count: number;
 }
@@ -302,5 +306,38 @@ export interface BackupRestoreResult {
   restored_deadlines: number;
   warnings: string[];
 }
+
+// --- Option-C: Web Scraper & Portal Ingestion Types ---
+
+export interface EmbeddedDocumentPreview {
+  url: string;
+  filename: string;
+  document_type: string;
+  relevance_score: number;
+  relevance_label: string;
+  display_title: string;
+}
+
+export interface ScrapePreview {
+  url: string;
+  final_url: string;
+  resolved_title: string;
+  content_type: string;
+  source_kind: 'html' | 'pdf' | 'docx';
+  detected_embedded_files: EmbeddedDocumentPreview[];
+  content_preview: string;
+  warnings: string[];
+  requires_document_selection: boolean;
+  preview_token?: string | null;
+}
+
+export interface IngestUrlPayload {
+  url: string;
+  follow_embedded_pdf?: boolean;
+  custom_title?: string;
+  selected_document_url?: string;
+  preview_token?: string | null;
+}
+
 
 
