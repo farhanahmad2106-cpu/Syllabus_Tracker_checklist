@@ -215,3 +215,39 @@ export interface ParseReviewResponse {
 export interface FinalizeEnrollmentRequest {
   enrolled_subject_ids: string[];
 }
+
+export type PacingStatus =
+  | 'completed'
+  | 'on_track'
+  | 'at_risk'
+  | 'behind'
+  | 'not_set';
+
+export interface PacingMetrics {
+  node_id: string;
+  target_date?: string | null;
+  days_remaining?: number | null;
+
+  total_leaves: number;
+  completed_leaves: number;
+  remaining_leaves: number;
+
+  remaining_contact_hours: number;
+
+  topics_per_week: number;
+  hours_per_week: number;
+
+  status: PacingStatus;
+}
+
+export interface SyllabusPacingSummary {
+  syllabus_id: string;
+  deadlines: Record<string, PacingMetrics>;
+}
+
+export interface SetTargetDatePayload {
+  node_id: string;
+  node_type: 'subject' | 'semester';
+  target_date: string;
+}
+

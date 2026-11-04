@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  clearNodeDeadline,
   deleteSyllabus,
   fetchHealth,
   fetchParseReview,
   fetchSyllabiList,
   fetchSyllabus,
+  fetchSyllabusPacing,
   finalizeEnrollment,
   renameSyllabus,
+  setNodeDeadline,
   toggleBranch,
   toggleLeaf,
   uploadSyllabusFile,
@@ -19,7 +22,9 @@ import {
 } from '../lib/progress';
 import type {
   HealthResponse,
+  PacingMetrics,
   ParseReviewResponse,
+  SetTargetDatePayload,
   SyllabusResponse,
   SyllabusSummary,
   UploadProgress,
@@ -28,11 +33,14 @@ import type {
 export function useSyllabus() {
   const [syllabi, setSyllabi] = useState<SyllabusSummary[]>([]);
   const [activeSyllabus, setActiveSyllabus] = useState<SyllabusResponse | null>(null);
+  const [pacingData, setPacingData] = useState<Record<string, PacingMetrics>>({});
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isMutating, setIsMutating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  const activeSyllabusIdRef = useRef<string | null>(null);
 
   // Elective confirmation workflow state
   const [reviewData, setReviewData] = useState<ParseReviewResponse | null>(null);
@@ -56,6 +64,25 @@ export function useSyllabus() {
     }
   }, []);
 
+  const refreshPacing = useCallback(async (targetId?: string) => {
+    const sId = targetId || activeSyllabusIdRef.current;
+    if (!sId) {
+      setPacingData({});
+      return;
+    }
+    try {
+      const pacing = await fetchSyllabusPacing(sId);
+      if (activeSyllabusIdRef.current === sId) {
+        setPacingData(pacing.deadlines || {});
+      }
+    } catch (err) {
+      console.error('Failed to load pacing data:', err);
+      if (activeSyllabusIdRef.current === sId) {
+        setPacingData({});
+      }
+    }
+  }, []);
+
   useEffect(() => {
     refreshList();
     refreshHealth();
@@ -64,12 +91,26 @@ export function useSyllabus() {
   const selectSyllabus = useCallback(async (id: string) => {
     setIsLoading(true);
     setError(null);
+    activeSyllabusIdRef.current = id;
+    setPacingData({});
     try {
       const data = await fetchSyllabus(id);
       setActiveSyllabus(data);
+      try {
+        const pacing = await fetchSyllabusPacing(id);
+        if (activeSyllabusIdRef.current === id) {
+          setPacingData(pacing.deadlines || {});
+        }
+      } catch (pacingErr) {
+        console.error('Failed to load pacing summary:', pacingErr);
+        if (activeSyllabusIdRef.current === id) {
+          setPacingData({});
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load syllabus');
       setActiveSyllabus(null);
+      setPacingData({});
     } finally {
       setIsLoading(false);
     }
@@ -115,13 +156,14 @@ export function useSyllabus() {
       setShowElectiveModal(false);
       setReviewData(null);
       await refreshList();
+      await refreshPacing(sId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to finalize elective choices');
       throw err;
     } finally {
       setIsMutating(false);
     }
-  }, [reviewData, activeSyllabus, refreshList]);
+  }, [reviewData, activeSyllabus, refreshList, refreshPacing]);
 
   const uploadFile = useCallback(async (file: File) => {
     const controller = new AbortController();
@@ -144,8 +186,10 @@ export function useSyllabus() {
         },
       });
 
+      activeSyllabusIdRef.current = result.syllabus.id;
       setActiveSyllabus(result);
       await refreshList();
+      await refreshPacing(result.syllabus.id);
 
       // If elective choices require confirmation, open modal immediately
       if (result.syllabus.requires_enrollment_confirmation) {
@@ -168,7 +212,7 @@ export function useSyllabus() {
       setUploadProgress(null);
       setActiveUploadController(null);
     }
-  }, [refreshList]);
+  }, [refreshList, refreshPacing]);
 
   const handleToggleLeaf = useCallback(async (leafId: string, isCompleted: boolean) => {
     if (!activeSyllabus) return;
@@ -197,6 +241,7 @@ export function useSyllabus() {
       const updated = await toggleLeaf(prev.syllabus.id, leafId, isCompleted);
       setActiveSyllabus(updated);
       await refreshList();
+      await refreshPacing(prev.syllabus.id);
     } catch (err) {
       // Rollback on failure
       setActiveSyllabus(prev);
@@ -204,7 +249,7 @@ export function useSyllabus() {
     } finally {
       setIsMutating(false);
     }
-  }, [activeSyllabus, refreshList]);
+  }, [activeSyllabus, refreshList, refreshPacing]);
 
   const handleToggleBranch = useCallback(async (nodeId: string, isCompleted: boolean) => {
     if (!activeSyllabus) return;
@@ -234,6 +279,7 @@ export function useSyllabus() {
       const updated = await toggleBranch(prev.syllabus.id, nodeId, isCompleted);
       setActiveSyllabus(updated);
       await refreshList();
+      await refreshPacing(prev.syllabus.id);
     } catch (err) {
       // Rollback on failure
       setActiveSyllabus(prev);
@@ -241,7 +287,7 @@ export function useSyllabus() {
     } finally {
       setIsMutating(false);
     }
-  }, [activeSyllabus, refreshList]);
+  }, [activeSyllabus, refreshList, refreshPacing]);
 
   const handleRename = useCallback(async (newTitle: string) => {
     if (!activeSyllabus) return;
@@ -258,7 +304,9 @@ export function useSyllabus() {
     try {
       await deleteSyllabus(syllabusId);
       if (activeSyllabus?.syllabus.id === syllabusId) {
+        activeSyllabusIdRef.current = null;
         setActiveSyllabus(null);
+        setPacingData({});
       }
       await refreshList();
     } catch (err) {
@@ -266,11 +314,45 @@ export function useSyllabus() {
     }
   }, [activeSyllabus, refreshList]);
 
+  const handleSetDeadline = useCallback(async (payload: SetTargetDatePayload) => {
+    const sId = activeSyllabus?.syllabus.id;
+    if (!sId) return;
+    try {
+      const metrics = await setNodeDeadline(sId, payload);
+      setPacingData((prev) => ({
+        ...prev,
+        [metrics.node_id]: metrics,
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to set deadline';
+      setError(msg);
+      throw err;
+    }
+  }, [activeSyllabus]);
+
+  const handleClearDeadline = useCallback(async (nodeId: string) => {
+    const sId = activeSyllabus?.syllabus.id;
+    if (!sId) return;
+    try {
+      await clearNodeDeadline(sId, nodeId);
+      setPacingData((prev) => {
+        const copy = { ...prev };
+        delete copy[nodeId];
+        return copy;
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear deadline';
+      setError(msg);
+      throw err;
+    }
+  }, [activeSyllabus]);
+
   const clearError = () => setError(null);
 
   return {
     syllabi,
     activeSyllabus,
+    pacingData,
     health,
     isLoading,
     isUploading,
@@ -280,6 +362,7 @@ export function useSyllabus() {
     clearError,
     refreshList,
     refreshHealth,
+    refreshPacing,
     selectSyllabus,
     uploadFile,
     cancelUpload,
@@ -287,7 +370,13 @@ export function useSyllabus() {
     handleToggleBranch,
     handleRename,
     handleDelete,
-    clearActive: () => setActiveSyllabus(null),
+    handleSetDeadline,
+    handleClearDeadline,
+    clearActive: () => {
+      activeSyllabusIdRef.current = null;
+      setActiveSyllabus(null);
+      setPacingData({});
+    },
     // Elective onboarding support
     reviewData,
     showElectiveModal,

@@ -19,16 +19,20 @@ from sqlalchemy.orm import Session
 from backend.app.config import settings
 from backend.app.database import (
     delete_syllabus,
+    delete_target_deadline,
     finalize_syllabus_enrollment,
     get_completed_leaf_ids,
     get_db,
     get_syllabus_record,
     get_syllabus_review,
+    get_target_deadline,
+    get_target_deadlines,
     init_db,
     list_syllabi_summaries,
     update_bulk_completion,
     update_leaf_completion,
     update_syllabus_title,
+    upsert_target_deadline,
 )
 from backend.app.exceptions import (
     DocumentParserError,
@@ -49,6 +53,7 @@ from backend.app.progress import (
     calculate_syllabus_progress,
     determine_bulk_toggle_action,
     get_node_descendant_leaf_ids,
+    is_subject_enrolled,
     node_exists_in_syllabus,
 )
 from backend.app.schemas import (
@@ -58,8 +63,11 @@ from backend.app.schemas import (
     HierarchicalSyllabus,
     JobProgressResponse,
     LeafToggleRequest,
+    PacingMetrics,
     ParseReviewResponse,
+    SetTargetDateRequest,
     StartUploadResponse,
+    SyllabusPacingSummaryResponse,
     SyllabusRenameRequest,
     SyllabusResponse,
     SyllabusSummary,
@@ -67,6 +75,7 @@ from backend.app.schemas import (
 from backend.app.parser import validate_file_metadata
 from backend.app.services.ingestion import ingest_syllabus_document, process_ingestion_job
 from backend.app.services.job_manager import job_manager
+from backend.app.services.pacing import calculate_node_pacing, find_node_in_syllabus
 
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger(__name__)
@@ -741,3 +750,114 @@ def remove_syllabus(syllabus_id: str, session: Session = Depends(get_db)):
         session.rollback()
         raise
     return None
+
+
+# --- Study Pacing & Exam Deadline Engine Endpoints ---
+
+@app.get("/api/syllabus/{syllabus_id}/pacing", response_model=SyllabusPacingSummaryResponse)
+def get_syllabus_pacing_summary(
+    syllabus_id: str,
+    session: Session = Depends(get_db),
+):
+    """Retrieve pacing metrics for all active subject and semester deadlines in a syllabus."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+    deadline_records = get_target_deadlines(session, syllabus_id)
+
+    deadlines_dict: Dict[str, PacingMetrics] = {}
+    for d in deadline_records:
+        lookup = find_node_in_syllabus(syllabus, d.node_id)
+        if lookup:
+            node, _ = lookup
+            deadlines_dict[d.node_id] = calculate_node_pacing(
+                node=node,
+                completed_leaf_ids=completed_ids,
+                target_date=d.target_date,
+            )
+
+    return SyllabusPacingSummaryResponse(
+        syllabus_id=syllabus_id,
+        deadlines=deadlines_dict,
+    )
+
+
+@app.post("/api/syllabus/{syllabus_id}/deadline", response_model=PacingMetrics)
+def set_or_update_target_deadline(
+    syllabus_id: str,
+    payload: SetTargetDateRequest,
+    session: Session = Depends(get_db),
+):
+    """Register or atomically update a target completion deadline for a Subject or Semester."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
+
+    lookup = find_node_in_syllabus(syllabus, payload.node_id)
+    if not lookup:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Node '{payload.node_id}' not found in syllabus '{syllabus_id}'",
+        )
+
+    node, actual_type = lookup
+    if actual_type != payload.node_type:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Node type mismatch: payload specified '{payload.node_type}', but target node '{payload.node_id}' is a '{actual_type}'",
+        )
+
+    if actual_type == "subject" and not is_subject_enrolled(node):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot set deadline on non-enrolled or excluded elective subject '{payload.node_id}'",
+        )
+
+    try:
+        deadline_rec = upsert_target_deadline(
+            session=session,
+            syllabus_id=syllabus_id,
+            node_id=payload.node_id,
+            node_type=payload.node_type,
+            target_date=payload.target_date,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+    return calculate_node_pacing(
+        node=node,
+        completed_leaf_ids=completed_ids,
+        target_date=deadline_rec.target_date,
+    )
+
+
+@app.delete("/api/syllabus/{syllabus_id}/deadline/{node_id}")
+def clear_target_deadline(
+    syllabus_id: str,
+    node_id: str,
+    session: Session = Depends(get_db),
+):
+    """Idempotently clear a target completion deadline for a Subject or Semester."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    try:
+        delete_target_deadline(session, syllabus_id, node_id)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return {
+        "status": "cleared",
+        "node_id": node_id,
+    }

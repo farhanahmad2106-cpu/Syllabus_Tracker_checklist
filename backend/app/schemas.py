@@ -9,7 +9,7 @@ Document Root (HierarchicalSyllabus)
           Tier 5: Subtopic (Completion Leaf)
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -265,6 +265,47 @@ class ProgressSummary(BaseModel):
     total_leaves: int = Field(ge=0)
     completed_leaves: int = Field(ge=0)
     progress_percent: float = Field(ge=0.0, le=100.0)
+
+
+class SetTargetDateRequest(BaseModel):
+    """Payload to register or update a deadline for a Subject or Semester."""
+    model_config = ConfigDict(strict=False)
+
+    node_id: str = Field(..., min_length=1)
+    node_type: Literal["subject", "semester"]
+    target_date: date
+
+    @field_validator("node_id")
+    @classmethod
+    def validate_non_blank_node_id(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("node_id must not be empty or whitespace only")
+        return s
+
+
+class PacingMetrics(BaseModel):
+    """Calculated pacing workload and status metrics for a node."""
+    model_config = ConfigDict(strict=False)
+
+    node_id: str
+    target_date: Optional[date] = None
+    days_remaining: Optional[int] = None
+    total_leaves: int = Field(default=0, ge=0)
+    completed_leaves: int = Field(default=0, ge=0)
+    remaining_leaves: int = Field(default=0, ge=0)
+    remaining_contact_hours: float = Field(default=0.0, ge=0.0)
+    topics_per_week: float = Field(default=0.0, ge=0.0)
+    hours_per_week: float = Field(default=0.0, ge=0.0)
+    status: Literal["completed", "on_track", "at_risk", "behind", "not_set"]
+
+
+class SyllabusPacingSummaryResponse(BaseModel):
+    """Collection of all active deadline metrics for a syllabus."""
+    model_config = ConfigDict(strict=False)
+
+    syllabus_id: str
+    deadlines: Dict[str, PacingMetrics] = Field(default_factory=dict)
 
 
 class SyllabusResponse(BaseModel):

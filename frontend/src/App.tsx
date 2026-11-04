@@ -24,6 +24,7 @@ export const App: React.FC = () => {
   const {
     syllabi,
     activeSyllabus,
+    pacingData,
     health,
     isLoading,
     isUploading,
@@ -40,6 +41,8 @@ export const App: React.FC = () => {
     handleToggleBranch,
     handleRename,
     handleDelete,
+    handleSetDeadline,
+    handleClearDeadline,
     reviewData,
     showElectiveModal,
     openElectiveModal,
@@ -412,6 +415,9 @@ export const App: React.FC = () => {
                 syllabus={activeSyllabus.syllabus}
                 completedLeafIds={activeSyllabus.completed_leaf_ids}
                 nodeProgress={activeSyllabus.node_progress}
+                pacingData={pacingData}
+                onSetDeadline={handleSetDeadline}
+                onClearDeadline={handleClearDeadline}
                 onToggleLeaf={handleToggleLeaf}
                 onToggleBranch={handleToggleBranch}
                 isMutating={isMutating}

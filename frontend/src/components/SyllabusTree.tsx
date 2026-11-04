@@ -14,11 +14,14 @@ import type {
   AcademicYear,
   HierarchicalSyllabus,
   Module,
+  PacingMetrics,
   ProgressSummary,
   Semester,
+  SetTargetDatePayload,
   Subject,
   Subtopic,
 } from '../types/syllabus';
+import { PacingBadge } from './PacingBadge';
 import { ProgressBar } from './ProgressBar';
 import { SourceEvidence } from './SourceEvidence';
 
@@ -26,6 +29,9 @@ interface SyllabusTreeProps {
   syllabus: HierarchicalSyllabus;
   completedLeafIds: string[];
   nodeProgress: Record<string, ProgressSummary>;
+  pacingData?: Record<string, PacingMetrics>;
+  onSetDeadline?: (payload: SetTargetDatePayload) => Promise<void>;
+  onClearDeadline?: (nodeId: string) => Promise<void>;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
   isMutating?: boolean;
@@ -96,6 +102,9 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
   syllabus,
   completedLeafIds,
   nodeProgress,
+  pacingData,
+  onSetDeadline,
+  onClearDeadline,
   onToggleLeaf,
   onToggleBranch,
   isMutating = false,
@@ -159,6 +168,9 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
             onToggleLeaf={onToggleLeaf}
             onToggleBranch={onToggleBranch}
             getBranchState={getBranchState}
+            pacingData={pacingData}
+            onSetDeadline={onSetDeadline}
+            onClearDeadline={onClearDeadline}
             isMutating={isMutating}
           />
         );
@@ -218,6 +230,9 @@ interface YearCardProps {
   progress: ProgressSummary;
   completedSet: Set<string>;
   nodeProgress: Record<string, ProgressSummary>;
+  pacingData?: Record<string, PacingMetrics>;
+  onSetDeadline?: (payload: SetTargetDatePayload) => Promise<void>;
+  onClearDeadline?: (nodeId: string) => Promise<void>;
   expandedNodes: Record<string, boolean>;
   onToggleExpand: (id: string) => void;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
@@ -234,6 +249,9 @@ const YearCard: React.FC<YearCardProps> = ({
   progress,
   completedSet,
   nodeProgress,
+  pacingData,
+  onSetDeadline,
+  onClearDeadline,
   expandedNodes,
   onToggleExpand,
   onToggleLeaf,
@@ -300,6 +318,9 @@ const YearCard: React.FC<YearCardProps> = ({
               onToggleLeaf={onToggleLeaf}
               onToggleBranch={onToggleBranch}
               getBranchState={getBranchState}
+              pacingData={pacingData}
+              onSetDeadline={onSetDeadline}
+              onClearDeadline={onClearDeadline}
               isMutating={isMutating}
             />
           ))}
@@ -316,6 +337,9 @@ interface SemesterCardProps {
   sem: Semester;
   completedSet: Set<string>;
   nodeProgress: Record<string, ProgressSummary>;
+  pacingData?: Record<string, PacingMetrics>;
+  onSetDeadline?: (payload: SetTargetDatePayload) => Promise<void>;
+  onClearDeadline?: (nodeId: string) => Promise<void>;
   expandedNodes: Record<string, boolean>;
   onToggleExpand: (id: string) => void;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
@@ -328,6 +352,9 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
   sem,
   completedSet,
   nodeProgress,
+  pacingData,
+  onSetDeadline,
+  onClearDeadline,
   expandedNodes,
   onToggleExpand,
   onToggleLeaf,
@@ -373,14 +400,24 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
             ariaLabel={`Select all topics in ${sem.title}`}
           />
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Layers className="w-4 h-4 text-teal-400" />
             <h4 className="text-sm font-medium text-gray-200">{sem.title}</h4>
+
+            {onSetDeadline && onClearDeadline && (
+              <PacingBadge
+                metrics={pacingData?.[sem.id]}
+                nodeId={sem.id}
+                nodeType="semester"
+                onSetDeadline={onSetDeadline}
+                onClearDeadline={onClearDeadline}
+              />
+            )}
           </div>
         </div>
 
         {prog && (
-          <div className="w-32 hidden sm:block">
+          <div className="w-32 hidden sm:block shrink-0">
             <ProgressBar progress={prog} size="sm" showLabel={true} />
           </div>
         )}
@@ -395,6 +432,9 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
               subj={subj}
               completedSet={completedSet}
               nodeProgress={nodeProgress}
+              pacingData={pacingData}
+              onSetDeadline={onSetDeadline}
+              onClearDeadline={onClearDeadline}
               expandedNodes={expandedNodes}
               onToggleExpand={onToggleExpand}
               onToggleLeaf={onToggleLeaf}
@@ -416,6 +456,9 @@ interface SubjectCardProps {
   subj: Subject;
   completedSet: Set<string>;
   nodeProgress: Record<string, ProgressSummary>;
+  pacingData?: Record<string, PacingMetrics>;
+  onSetDeadline?: (payload: SetTargetDatePayload) => Promise<void>;
+  onClearDeadline?: (nodeId: string) => Promise<void>;
   expandedNodes: Record<string, boolean>;
   onToggleExpand: (id: string) => void;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
@@ -428,6 +471,9 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   subj,
   completedSet,
   nodeProgress,
+  pacingData,
+  onSetDeadline,
+  onClearDeadline,
   expandedNodes,
   onToggleExpand,
   onToggleLeaf,
@@ -510,11 +556,22 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
                 Excluded
               </span>
             )}
+
+            {/* Pacing Badge for Enrolled Subject */}
+            {isEnrolled && onSetDeadline && onClearDeadline && (
+              <PacingBadge
+                metrics={pacingData?.[subj.id]}
+                nodeId={subj.id}
+                nodeType="subject"
+                onSetDeadline={onSetDeadline}
+                onClearDeadline={onClearDeadline}
+              />
+            )}
           </div>
         </div>
 
         {prog && isEnrolled && (
-          <div className="w-28 hidden sm:block">
+          <div className="w-28 hidden sm:block shrink-0">
             <ProgressBar progress={prog} size="sm" showLabel={true} />
           </div>
         )}

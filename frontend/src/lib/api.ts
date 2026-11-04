@@ -5,8 +5,11 @@
 import type {
   AppConfigResponse,
   HealthResponse,
+  PacingMetrics,
   ParseReviewResponse,
+  SetTargetDatePayload,
   StartUploadResponse,
+  SyllabusPacingSummary,
   SyllabusResponse,
   SyllabusSummary,
   UploadProgress,
@@ -363,5 +366,44 @@ export async function updateEnrollment(
     body: JSON.stringify({ enrolled_subject_ids: enrolledSubjectIds }),
   });
   return handleResponse<SyllabusResponse>(res);
+}
+
+export async function fetchSyllabusPacing(
+  syllabusId: string,
+  signal?: AbortSignal
+): Promise<SyllabusPacingSummary> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/pacing`, {
+    signal,
+  });
+  return handleResponse<SyllabusPacingSummary>(res);
+}
+
+export async function setNodeDeadline(
+  syllabusId: string,
+  payload: SetTargetDatePayload,
+  signal?: AbortSignal
+): Promise<PacingMetrics> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/deadline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  return handleResponse<PacingMetrics>(res);
+}
+
+export async function clearNodeDeadline(
+  syllabusId: string,
+  nodeId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/deadline/${encodeURIComponent(nodeId)}`,
+    {
+      method: 'DELETE',
+      signal,
+    }
+  );
+  return handleResponse<void>(res);
 }
 

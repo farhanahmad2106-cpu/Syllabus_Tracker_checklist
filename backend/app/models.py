@@ -1,11 +1,50 @@
 """SQLAlchemy / SQLModel persistence models for SQLite storage."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import declarative_base, relationship
+from sqlmodel import SQLModel, Field as DBField, Relationship
 
-Base = declarative_base()
+Base = declarative_base(metadata=SQLModel.metadata)
+
+
+class TargetDeadline(SQLModel, table=True):
+    """Tracks target completion/exam deadlines for subjects and semesters."""
+    __tablename__ = "target_deadlines"
+    __table_args__ = (
+        UniqueConstraint("syllabus_id", "node_id", name="uq_target_deadlines_syllabus_node"),
+        CheckConstraint("node_type IN ('subject', 'semester')", name="ck_target_deadlines_node_type"),
+    )
+
+    id: Optional[int] = DBField(
+        default=None,
+        primary_key=True,
+    )
+
+    syllabus_id: str = DBField(
+        index=True,
+        foreign_key="syllabi.id",
+        ondelete="CASCADE",
+    )
+
+    node_id: str = DBField(
+        index=True,
+    )
+
+    node_type: str = DBField(
+        description="subject or semester",
+    )
+
+    target_date: date
+
+    created_at: datetime = DBField(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+    updated_at: datetime = DBField(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
 
 
 class SyllabusRecord(Base):
@@ -38,6 +77,12 @@ class SyllabusRecord(Base):
         passive_deletes=True,
     )
 
+    deadlines = relationship(
+        TargetDeadline,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 class LeafCompletionRecord(Base):
     """Tracks completed leaf subtopics for a syllabus."""
@@ -62,3 +107,4 @@ class LeafCompletionRecord(Base):
     __table_args__ = (
         UniqueConstraint("syllabus_id", "leaf_id", name="uq_syllabus_leaf"),
     )
+

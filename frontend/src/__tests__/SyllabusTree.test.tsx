@@ -1,5 +1,5 @@
 import '../setupTests';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SyllabusTree } from '../components/SyllabusTree';
 import type { HierarchicalSyllabus } from '../types/syllabus';
@@ -372,6 +372,72 @@ describe('SyllabusTree', () => {
     // Collapsing again sets aria-expanded back to false
     fireEvent.click(labToggle);
     expect(labToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('renders PacingBadge on Semester and Subject containers and handles deadline interactions', async () => {
+    const handleSet = vi.fn().mockResolvedValue(undefined);
+    const handleClear = vi.fn().mockResolvedValue(undefined);
+
+    const pacingData = {
+      sem_1: {
+        node_id: 'sem_1',
+        target_date: '2026-12-15',
+        days_remaining: 41,
+        total_leaves: 2,
+        completed_leaves: 0,
+        remaining_leaves: 2,
+        remaining_contact_hours: 8.0,
+        topics_per_week: 0.3,
+        hours_per_week: 1.4,
+        status: 'on_track' as const,
+      },
+      subj_cs101: {
+        node_id: 'subj_cs101',
+        target_date: '2026-12-01',
+        days_remaining: 27,
+        total_leaves: 2,
+        completed_leaves: 0,
+        remaining_leaves: 2,
+        remaining_contact_hours: 8.0,
+        topics_per_week: 0.5,
+        hours_per_week: 2.1,
+        status: 'on_track' as const,
+      },
+    };
+
+    render(
+      <SyllabusTree
+        syllabus={canonical5TierSyllabus}
+        completedLeafIds={[]}
+        nodeProgress={{}}
+        pacingData={pacingData}
+        onSetDeadline={handleSet}
+        onClearDeadline={handleClear}
+        onToggleLeaf={vi.fn()}
+        onToggleBranch={vi.fn()}
+      />
+    );
+
+    // Semester 1 renders its pacing badge
+    expect(screen.getByTestId('pacing-badge-sem_1')).toBeInTheDocument();
+    expect(screen.getByText('41d left')).toBeInTheDocument();
+
+    // Subject cs101 renders its pacing badge
+    expect(screen.getByTestId('pacing-badge-subj_cs101')).toBeInTheDocument();
+    expect(screen.getByText('27d left')).toBeInTheDocument();
+
+    // Clear deadline on Subject cs101
+    const clearBtn = screen.getByTestId('pacing-badge-clear-btn-subj_cs101');
+    await act(async () => {
+      fireEvent.click(clearBtn);
+    });
+
+    const confirmBtn = screen.getByTestId('pacing-confirm-clear-btn-subj_cs101');
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    expect(handleClear).toHaveBeenCalledWith('subj_cs101');
   });
 });
 

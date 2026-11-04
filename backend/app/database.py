@@ -3,10 +3,11 @@
 import json
 import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Generator, List, Optional, Set, Tuple
 
 from sqlalchemy import create_engine, event, select, delete, text
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -17,7 +18,7 @@ from backend.app.exceptions import (
     InvalidNodeError,
     SyllabusNotFoundError,
 )
-from backend.app.models import Base, LeafCompletionRecord, SyllabusRecord
+from backend.app.models import Base, LeafCompletionRecord, SyllabusRecord, TargetDeadline
 from backend.app.schemas import (
     HierarchicalSyllabus,
     ParseReviewResponse,
@@ -79,6 +80,12 @@ def init_db(db_engine: Optional[Engine] = None) -> None:
             columns = [row[1] for row in result.fetchall()]
             if "content_hash" not in columns:
                 conn.execute(text("ALTER TABLE syllabi ADD COLUMN content_hash VARCHAR(64)"))
+                conn.commit()
+
+            # Ensure target_deadlines table is created if running against existing database
+            table_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='target_deadlines'"))
+            if not table_check.fetchone():
+                TargetDeadline.__table__.create(bind=conn, checkfirst=True)
                 conn.commit()
     except Exception:
         pass
@@ -317,16 +324,85 @@ def update_syllabus_title(
 
 
 def delete_syllabus(session: Session, syllabus_id: str) -> bool:
-    """Delete a syllabus and its completions (via cascade and explicit deletion)."""
+    """Delete a syllabus and its completions/deadlines (via cascade and explicit deletion)."""
     rec = get_syllabus_record(session, syllabus_id)
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    # Delete completions explicitly for absolute transactional safety
+    # Delete completions and deadlines explicitly for absolute transactional safety
     session.execute(
         delete(LeafCompletionRecord).where(LeafCompletionRecord.syllabus_id == syllabus_id)
     )
+    session.execute(
+        delete(TargetDeadline).where(TargetDeadline.syllabus_id == syllabus_id)
+    )
     session.delete(rec)
+    session.flush()
+    return True
+
+
+def get_target_deadlines(session: Session, syllabus_id: str) -> List[TargetDeadline]:
+    """Retrieve all target deadlines registered for a syllabus."""
+    stmt = select(TargetDeadline).where(TargetDeadline.syllabus_id == syllabus_id)
+    return list(session.scalars(stmt).all())
+
+
+def get_target_deadline(
+    session: Session, syllabus_id: str, node_id: str
+) -> Optional[TargetDeadline]:
+    """Retrieve a target deadline for a specific node in a syllabus."""
+    stmt = select(TargetDeadline).where(
+        TargetDeadline.syllabus_id == syllabus_id,
+        TargetDeadline.node_id == node_id,
+    )
+    return session.scalars(stmt).first()
+
+
+def upsert_target_deadline(
+    session: Session,
+    syllabus_id: str,
+    node_id: str,
+    node_type: str,
+    target_date: date,
+) -> TargetDeadline:
+    """
+    Atomically insert or update a target deadline for a syllabus node.
+    Enforces unique constraint on (syllabus_id, node_id) and preserves created_at.
+    """
+    now = datetime.now(timezone.utc)
+    stmt = sqlite_insert(TargetDeadline).values(
+        syllabus_id=syllabus_id,
+        node_id=node_id,
+        node_type=node_type,
+        target_date=target_date,
+        created_at=now,
+        updated_at=now,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["syllabus_id", "node_id"],
+        set_={
+            "target_date": stmt.excluded.target_date,
+            "node_type": stmt.excluded.node_type,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    )
+    session.execute(stmt)
+    session.flush()
+
+    rec = get_target_deadline(session, syllabus_id, node_id)
+    assert rec is not None
+    return rec
+
+
+def delete_target_deadline(
+    session: Session, syllabus_id: str, node_id: str
+) -> bool:
+    """Idempotently delete a target deadline for a specific node in a syllabus."""
+    stmt = delete(TargetDeadline).where(
+        TargetDeadline.syllabus_id == syllabus_id,
+        TargetDeadline.node_id == node_id,
+    )
+    session.execute(stmt)
     session.flush()
     return True
 
