@@ -18,7 +18,7 @@ from backend.app.exceptions import (
     InvalidNodeError,
     SyllabusNotFoundError,
 )
-from backend.app.models import Base, LeafCompletionRecord, SyllabusRecord, TargetDeadline
+from backend.app.models import Base, LeafCompletionRecord, SyllabusRecord, TargetDeadline, TopicNote, TopicResource
 from backend.app.schemas import (
     HierarchicalSyllabus,
     ParseReviewResponse,
@@ -86,6 +86,18 @@ def init_db(db_engine: Optional[Engine] = None) -> None:
             table_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='target_deadlines'"))
             if not table_check.fetchone():
                 TargetDeadline.__table__.create(bind=conn, checkfirst=True)
+                conn.commit()
+
+            # Ensure topic_notes table is created if running against existing database
+            notes_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='topic_notes'"))
+            if not notes_check.fetchone():
+                TopicNote.__table__.create(bind=conn, checkfirst=True)
+                conn.commit()
+
+            # Ensure topic_resources table is created if running against existing database
+            res_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='topic_resources'"))
+            if not res_check.fetchone():
+                TopicResource.__table__.create(bind=conn, checkfirst=True)
                 conn.commit()
     except Exception:
         pass
@@ -324,17 +336,23 @@ def update_syllabus_title(
 
 
 def delete_syllabus(session: Session, syllabus_id: str) -> bool:
-    """Delete a syllabus and its completions/deadlines (via cascade and explicit deletion)."""
+    """Delete a syllabus and its completions/deadlines/notes/resources (via cascade and explicit deletion)."""
     rec = get_syllabus_record(session, syllabus_id)
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    # Delete completions and deadlines explicitly for absolute transactional safety
+    # Delete completions, deadlines, notes, and resources explicitly for absolute transactional safety
     session.execute(
         delete(LeafCompletionRecord).where(LeafCompletionRecord.syllabus_id == syllabus_id)
     )
     session.execute(
         delete(TargetDeadline).where(TargetDeadline.syllabus_id == syllabus_id)
+    )
+    session.execute(
+        delete(TopicNote).where(TopicNote.syllabus_id == syllabus_id)
+    )
+    session.execute(
+        delete(TopicResource).where(TopicResource.syllabus_id == syllabus_id)
     )
     session.delete(rec)
     session.flush()
@@ -498,4 +516,134 @@ def finalize_syllabus_enrollment(
     session.flush()
 
     return syllabus
+
+
+# --- Topic Notes Helpers ---
+
+def get_topic_note(session: Session, syllabus_id: str, leaf_id: str) -> Optional[TopicNote]:
+    """Retrieve a topic note for a specific leaf subtopic in a syllabus."""
+    stmt = select(TopicNote).where(
+        TopicNote.syllabus_id == syllabus_id,
+        TopicNote.leaf_id == leaf_id,
+    )
+    return session.scalars(stmt).first()
+
+
+def upsert_topic_note(
+    session: Session,
+    syllabus_id: str,
+    leaf_id: str,
+    content: str,
+) -> TopicNote:
+    """
+    Atomically insert or update a topic note for a leaf subtopic.
+    Preserves created_at while updating content and updated_at.
+    """
+    now = datetime.now(timezone.utc)
+    stmt = sqlite_insert(TopicNote).values(
+        syllabus_id=syllabus_id,
+        leaf_id=leaf_id,
+        content=content,
+        created_at=now,
+        updated_at=now,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["syllabus_id", "leaf_id"],
+        set_={
+            "content": stmt.excluded.content,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    )
+    session.execute(stmt)
+    session.flush()
+
+    note = get_topic_note(session, syllabus_id, leaf_id)
+    assert note is not None
+    return note
+
+
+def delete_topic_note(session: Session, syllabus_id: str, leaf_id: str) -> bool:
+    """Delete a topic note for a specific leaf subtopic in a syllabus. Returns True if deleted, False if not found."""
+    existing = get_topic_note(session, syllabus_id, leaf_id)
+    if not existing:
+        return False
+    session.delete(existing)
+    session.flush()
+    return True
+
+
+def get_all_syllabus_notes(session: Session, syllabus_id: str) -> List[TopicNote]:
+    """Retrieve all topic notes saved for a syllabus."""
+    stmt = select(TopicNote).where(TopicNote.syllabus_id == syllabus_id)
+    return list(session.scalars(stmt).all())
+
+
+# --- Topic Resources Helpers ---
+
+def get_topic_resources(
+    session: Session,
+    syllabus_id: str,
+    node_id: Optional[str] = None,
+    node_type: Optional[str] = None,
+) -> List[TopicResource]:
+    """Retrieve resources for a syllabus, optionally filtered by node_id and/or node_type."""
+    stmt = select(TopicResource).where(TopicResource.syllabus_id == syllabus_id)
+    if node_id:
+        stmt = stmt.where(TopicResource.node_id == node_id)
+    if node_type:
+        stmt = stmt.where(TopicResource.node_type == node_type)
+    stmt = stmt.order_by(TopicResource.created_at.asc())
+    return list(session.scalars(stmt).all())
+
+
+def get_all_syllabus_resources(session: Session, syllabus_id: str) -> List[TopicResource]:
+    """Retrieve all resources saved for a syllabus."""
+    stmt = select(TopicResource).where(
+        TopicResource.syllabus_id == syllabus_id
+    ).order_by(TopicResource.created_at.asc())
+    return list(session.scalars(stmt).all())
+
+
+def add_topic_resource(
+    session: Session,
+    syllabus_id: str,
+    node_id: str,
+    node_type: str,
+    title: str,
+    url: str,
+    resource_type: str = "link",
+) -> TopicResource:
+    """Add a new learning resource attached to a subtopic or module."""
+    now = datetime.now(timezone.utc)
+    res = TopicResource(
+        syllabus_id=syllabus_id,
+        node_id=node_id,
+        node_type=node_type,
+        title=title,
+        url=url,
+        resource_type=resource_type,
+        created_at=now,
+    )
+    session.add(res)
+    session.flush()
+    return res
+
+
+def delete_topic_resource(
+    session: Session,
+    syllabus_id: str,
+    resource_id: int,
+) -> bool:
+    """Delete a learning resource by ID for a syllabus. Returns True if deleted, False if not found."""
+    stmt = select(TopicResource).where(
+        TopicResource.id == resource_id,
+        TopicResource.syllabus_id == syllabus_id,
+    )
+    res = session.scalars(stmt).first()
+    if not res:
+        return False
+    session.delete(res)
+    session.flush()
+    return True
+
 

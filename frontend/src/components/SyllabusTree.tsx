@@ -6,8 +6,10 @@ import {
   Calendar,
   Check,
   ChevronDown,
+  FileText,
   Folder,
   Layers,
+  Link2,
   Minus,
 } from 'lucide-react';
 import type {
@@ -35,6 +37,10 @@ interface SyllabusTreeProps {
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
   isMutating?: boolean;
+  noteLeafIds?: Set<string>;
+  resourceCounts?: Record<string, number>;
+  onOpenNote?: (leafId: string, leafTitle: string) => void;
+  onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
 }
 
 // Helper to normalize subjects from either 5-level canonical subjects or legacy 4-level topics
@@ -108,6 +114,10 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
   onToggleLeaf,
   onToggleBranch,
   isMutating = false,
+  noteLeafIds,
+  resourceCounts,
+  onOpenNote,
+  onOpenResource,
 }) => {
   const completedSet = new Set(completedLeafIds);
 
@@ -172,6 +182,10 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
             onSetDeadline={onSetDeadline}
             onClearDeadline={onClearDeadline}
             isMutating={isMutating}
+            noteLeafIds={noteLeafIds}
+            resourceCounts={resourceCounts}
+            onOpenNote={onOpenNote}
+            onOpenResource={onOpenResource}
           />
         );
       })}
@@ -239,6 +253,10 @@ interface YearCardProps {
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
   getBranchState: (leaves: string[]) => boolean | 'indeterminate';
   isMutating: boolean;
+  noteLeafIds?: Set<string>;
+  resourceCounts?: Record<string, number>;
+  onOpenNote?: (leafId: string, leafTitle: string) => void;
+  onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
 }
 
 const YearCard: React.FC<YearCardProps> = ({
@@ -258,6 +276,10 @@ const YearCard: React.FC<YearCardProps> = ({
   onToggleBranch,
   getBranchState,
   isMutating,
+  noteLeafIds,
+  resourceCounts,
+  onOpenNote,
+  onOpenResource,
 }) => {
   const contentId = `year-content-${year.id}`;
 
@@ -322,6 +344,10 @@ const YearCard: React.FC<YearCardProps> = ({
               onSetDeadline={onSetDeadline}
               onClearDeadline={onClearDeadline}
               isMutating={isMutating}
+              noteLeafIds={noteLeafIds}
+              resourceCounts={resourceCounts}
+              onOpenNote={onOpenNote}
+              onOpenResource={onOpenResource}
             />
           ))}
         </div>
@@ -346,6 +372,10 @@ interface SemesterCardProps {
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
   getBranchState: (leaves: string[]) => boolean | 'indeterminate';
   isMutating: boolean;
+  noteLeafIds?: Set<string>;
+  resourceCounts?: Record<string, number>;
+  onOpenNote?: (leafId: string, leafTitle: string) => void;
+  onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
 }
 
 const SemesterCard: React.FC<SemesterCardProps> = ({
@@ -361,6 +391,10 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
   onToggleBranch,
   getBranchState,
   isMutating,
+  noteLeafIds,
+  resourceCounts,
+  onOpenNote,
+  onOpenResource,
 }) => {
   const semLeaves = getSemesterLeaves(sem);
   const semState = getBranchState(semLeaves);
@@ -441,6 +475,10 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
               onToggleBranch={onToggleBranch}
               getBranchState={getBranchState}
               isMutating={isMutating}
+              noteLeafIds={noteLeafIds}
+              resourceCounts={resourceCounts}
+              onOpenNote={onOpenNote}
+              onOpenResource={onOpenResource}
             />
           ))}
         </div>
@@ -465,6 +503,10 @@ interface SubjectCardProps {
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
   getBranchState: (leaves: string[]) => boolean | 'indeterminate';
   isMutating: boolean;
+  noteLeafIds?: Set<string>;
+  resourceCounts?: Record<string, number>;
+  onOpenNote?: (leafId: string, leafTitle: string) => void;
+  onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
 }
 
 const SubjectCard: React.FC<SubjectCardProps> = ({
@@ -480,6 +522,10 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   onToggleBranch,
   getBranchState,
   isMutating,
+  noteLeafIds,
+  resourceCounts,
+  onOpenNote,
+  onOpenResource,
 }) => {
   const isEnrolled = isSubjectEnrolled(subj);
   const subjLeaves = getSubjectLeaves(subj, isEnrolled);
@@ -592,6 +638,10 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
               onToggleBranch={onToggleBranch}
               getBranchState={getBranchState}
               isMutating={isMutating}
+              noteLeafIds={noteLeafIds}
+              resourceCounts={resourceCounts}
+              onOpenNote={onOpenNote}
+              onOpenResource={onOpenResource}
             />
           ))}
         </div>
@@ -613,6 +663,10 @@ interface ModuleCardProps {
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
   getBranchState: (leaves: string[]) => boolean | 'indeterminate';
   isMutating: boolean;
+  noteLeafIds?: Set<string>;
+  resourceCounts?: Record<string, number>;
+  onOpenNote?: (leafId: string, leafTitle: string) => void;
+  onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
 }
 
 const ModuleCard: React.FC<ModuleCardProps> = ({
@@ -625,6 +679,10 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
   onToggleBranch,
   getBranchState,
   isMutating,
+  noteLeafIds,
+  resourceCounts,
+  onOpenNote,
+  onOpenResource,
 }) => {
   const modLeaves = getModuleLeaves(mod);
   const modState = getBranchState(modLeaves);
@@ -637,6 +695,8 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
     mod.contact_hours != null
       ? `${mod.contact_hours} Contact Hrs`
       : 'Contact Hours Not Specified';
+
+  const modResCount = resourceCounts?.[mod.id] || 0;
 
   return (
     <div
@@ -684,6 +744,32 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
             >
               {contactHourBadgeText}
             </span>
+
+            {/* Module Resources Button */}
+            {onOpenResource && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenResource(mod.id, 'module', mod.title);
+                }}
+                className={`px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 transition-colors ${
+                  modResCount > 0
+                    ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 hover:bg-indigo-900/80'
+                    : 'text-gray-400 hover:text-indigo-300 hover:bg-gray-800/60 border border-transparent'
+                }`}
+                title={modResCount > 0 ? `${modResCount} resource(s) attached` : 'Add module resources'}
+                aria-label={`Open resources for module ${mod.title}`}
+              >
+                <Link2 className="w-3 h-3" />
+                <span>Resources</span>
+                {modResCount > 0 && (
+                  <span className="ml-0.5 px-1 py-0.2 text-[9px] font-bold rounded-full bg-indigo-600 text-white">
+                    {modResCount}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
         </div>
 
@@ -704,6 +790,10 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
               isCompleted={completedSet.has(topic.id)}
               disabled={isMutating}
               onToggleLeaf={onToggleLeaf}
+              hasNote={noteLeafIds ? noteLeafIds.has(topic.id) : false}
+              resourceCount={resourceCounts ? resourceCounts[topic.id] || 0 : 0}
+              onOpenNote={onOpenNote}
+              onOpenResource={onOpenResource}
             />
           ))}
         </div>
@@ -720,6 +810,10 @@ interface TopicLeafRowProps {
   isCompleted: boolean;
   disabled: boolean;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
+  hasNote?: boolean;
+  resourceCount?: number;
+  onOpenNote?: (leafId: string, leafTitle: string) => void;
+  onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
 }
 
 const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
@@ -727,6 +821,10 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
   isCompleted,
   disabled,
   onToggleLeaf,
+  hasNote = false,
+  resourceCount = 0,
+  onOpenNote,
+  onOpenResource,
 }) => {
   const checkboxId = useId();
   const isVerified =
@@ -773,7 +871,48 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
         )}
       </div>
 
-      <div className="shrink-0 ml-2">
+      <div className="shrink-0 ml-2 flex items-center gap-1.5">
+        {onOpenNote && (
+          <button
+            type="button"
+            data-testid={`note-btn-${topic.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenNote(topic.id, topic.title);
+            }}
+            className={`p-1 rounded transition-colors ${
+              hasNote
+                ? 'text-amber-400 bg-amber-950/40 hover:bg-amber-900/50'
+                : 'text-gray-500 hover:text-amber-300 hover:bg-gray-800'
+            }`}
+            title={hasNote ? 'Edit study notes (Notes present)' : 'Add study notes'}
+            aria-label={`Notes for ${topic.title}`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {onOpenResource && (
+          <button
+            type="button"
+            data-testid={`resource-btn-${topic.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenResource(topic.id, 'subtopic', topic.title);
+            }}
+            className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1 transition-colors ${
+              resourceCount > 0
+                ? 'text-indigo-300 bg-indigo-950/60 border border-indigo-800/40 hover:bg-indigo-900/60'
+                : 'text-gray-500 hover:text-indigo-300 hover:bg-gray-800 border border-transparent'
+            }`}
+            title={resourceCount > 0 ? `${resourceCount} resource(s) attached` : 'Add learning resource'}
+            aria-label={`Resources for ${topic.title}`}
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            {resourceCount > 0 && <span className="font-semibold text-[9px]">{resourceCount}</span>}
+          </button>
+        )}
+
         <SourceEvidence subtopic={topic} />
       </div>
     </div>

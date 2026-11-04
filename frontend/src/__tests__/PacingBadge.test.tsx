@@ -229,3 +229,4 @@ describe('PacingBadge Component', () => {
     expect(parentClick).not.toHaveBeenCalled();
   });
 });
+

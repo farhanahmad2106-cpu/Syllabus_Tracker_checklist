@@ -15,9 +15,12 @@ import { ConfirmDelete } from './components/ConfirmDelete';
 import { ElectiveOnboardingModal } from './components/ElectiveOnboardingModal';
 import { EmptyState } from './components/EmptyState';
 import { ErrorMessage } from './components/ErrorMessage';
+import { ExportMenu } from './components/ExportMenu';
 import { FileUpload } from './components/FileUpload';
 import { ProgressBar } from './components/ProgressBar';
 import { SyllabusTree } from './components/SyllabusTree';
+import { TopicNotesDrawer } from './components/TopicNotesDrawer';
+import { TopicResourcesModal } from './components/TopicResourcesModal';
 import { useSyllabus } from './hooks/useSyllabus';
 
 export const App: React.FC = () => {
@@ -43,6 +46,16 @@ export const App: React.FC = () => {
     handleDelete,
     handleSetDeadline,
     handleClearDeadline,
+    noteLeafIds,
+    resourceCounts,
+    activeNoteLeaf,
+    activeResourceNode,
+    openNoteDrawer,
+    closeNoteDrawer,
+    handleNoteChange,
+    openResourceModal,
+    closeResourceModal,
+    handleResourceCountChange,
     reviewData,
     showElectiveModal,
     openElectiveModal,
@@ -366,7 +379,15 @@ export const App: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    <ExportMenu
+                      syllabusId={activeSyllabus.syllabus.id}
+                      syllabusTitle={activeSyllabus.syllabus.title}
+                      onRestoreSuccess={(newId) => {
+                        selectSyllabus(newId);
+                        refreshList();
+                      }}
+                    />
                     <button
                       type="button"
                       onClick={() => openElectiveModal(activeSyllabus.syllabus.id)}
@@ -421,6 +442,10 @@ export const App: React.FC = () => {
                 onToggleLeaf={handleToggleLeaf}
                 onToggleBranch={handleToggleBranch}
                 isMutating={isMutating}
+                noteLeafIds={noteLeafIds}
+                resourceCounts={resourceCounts}
+                onOpenNote={openNoteDrawer}
+                onOpenResource={openResourceModal}
               />
             </div>
           ) : (
@@ -506,6 +531,27 @@ export const App: React.FC = () => {
           isSubmitting={isMutating}
         />
       )}
+
+      {/* Option-B: Topic Notes Drawer */}
+      <TopicNotesDrawer
+        isOpen={Boolean(activeNoteLeaf)}
+        onClose={closeNoteDrawer}
+        syllabusId={activeSyllabus?.syllabus.id || ''}
+        leafId={activeNoteLeaf?.id || null}
+        leafTitle={activeNoteLeaf?.title || ''}
+        onNoteChange={handleNoteChange}
+      />
+
+      {/* Option-B: Topic / Module Learning Resources Modal */}
+      <TopicResourcesModal
+        isOpen={Boolean(activeResourceNode)}
+        onClose={closeResourceModal}
+        syllabusId={activeSyllabus?.syllabus.id || ''}
+        nodeId={activeResourceNode?.id || null}
+        nodeType={activeResourceNode?.type || 'subtopic'}
+        nodeTitle={activeResourceNode?.title || ''}
+        onResourceCountChange={handleResourceCountChange}
+      />
     </div>
   );
 };

@@ -192,3 +192,4 @@ def find_node_in_syllabus(
                 if subj.id == node_id:
                     return subj, "subject"
     return None
+

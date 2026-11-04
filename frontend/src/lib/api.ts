@@ -3,7 +3,11 @@
  */
 
 import type {
+  AddResourcePayload,
   AppConfigResponse,
+  BackupRestorePayload,
+  BackupRestoreResult,
+  ExportOptions,
   HealthResponse,
   PacingMetrics,
   ParseReviewResponse,
@@ -12,6 +16,8 @@ import type {
   SyllabusPacingSummary,
   SyllabusResponse,
   SyllabusSummary,
+  TopicNote,
+  TopicResource,
   UploadProgress,
 } from '../types/syllabus';
 
@@ -406,4 +412,210 @@ export async function clearNodeDeadline(
   );
   return handleResponse<void>(res);
 }
+
+// --- Option-B: Topic Notes API ---
+
+export async function fetchSyllabusNotes(
+  syllabusId: string,
+  signal?: AbortSignal
+): Promise<TopicNote[]> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/notes`, {
+    signal,
+  });
+  return handleResponse<TopicNote[]>(res);
+}
+
+export async function fetchTopicNote(
+  syllabusId: string,
+  leafId: string,
+  signal?: AbortSignal
+): Promise<TopicNote | null> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/notes/${encodeURIComponent(leafId)}`,
+    { signal }
+  );
+  if (res.status === 404) {
+    return null;
+  }
+  return handleResponse<TopicNote>(res);
+}
+
+export async function saveTopicNote(
+  syllabusId: string,
+  leafId: string,
+  content: string,
+  signal?: AbortSignal
+): Promise<TopicNote> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/notes/${encodeURIComponent(leafId)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+      signal,
+    }
+  );
+  return handleResponse<TopicNote>(res);
+}
+
+export async function deleteTopicNote(
+  syllabusId: string,
+  leafId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/notes/${encodeURIComponent(leafId)}`,
+    {
+      method: 'DELETE',
+      signal,
+    }
+  );
+  return handleResponse<void>(res);
+}
+
+// --- Option-B: Learning Resources API ---
+
+export async function fetchSyllabusResources(
+  syllabusId: string,
+  nodeId?: string,
+  nodeType?: string,
+  signal?: AbortSignal
+): Promise<TopicResource[]> {
+  const params = new URLSearchParams();
+  if (nodeId) params.append('node_id', nodeId);
+  if (nodeType) params.append('node_type', nodeType);
+  const q = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/resources${q}`, {
+    signal,
+  });
+  return handleResponse<TopicResource[]>(res);
+}
+
+export async function addTopicResource(
+  syllabusId: string,
+  payload: AddResourcePayload,
+  signal?: AbortSignal
+): Promise<TopicResource> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/resources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  return handleResponse<TopicResource>(res);
+}
+
+export async function deleteTopicResource(
+  syllabusId: string,
+  resourceId: number,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/resources/${encodeURIComponent(resourceId)}`,
+    {
+      method: 'DELETE',
+      signal,
+    }
+  );
+  return handleResponse<void>(res);
+}
+
+// --- Option-B: Export & Restore API ---
+
+function buildExportQueryParams(options: ExportOptions): string {
+  const params = new URLSearchParams();
+  params.append('include_notes', String(options.include_notes));
+  params.append('include_resources', String(options.include_resources));
+  params.append('include_pacing', String(options.include_pacing));
+  params.append('enrolled_only', String(options.enrolled_only));
+  return params.toString();
+}
+
+export function getExportMarkdownUrl(syllabusId: string, options: ExportOptions): string {
+  return `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/export/markdown?${buildExportQueryParams(options)}`;
+}
+
+export function getExportJsonUrl(syllabusId: string, options: ExportOptions): string {
+  return `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/export/json?${buildExportQueryParams(options)}`;
+}
+
+export function getExportHtmlUrl(syllabusId: string, options: ExportOptions): string {
+  return `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/export/html?${buildExportQueryParams(options)}`;
+}
+
+export async function downloadFileFromUrl(url: string, defaultFilename: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new ApiError(res.status, `Failed to download: ${res.statusText}`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('content-disposition');
+  let filename = defaultFilename;
+  if (disposition && disposition.includes('filename=')) {
+    const match = disposition.match(/filename="?([^";]+)"?/);
+    if (match && match[1]) {
+      filename = match[1];
+    }
+  }
+
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
+export async function downloadExportMarkdown(syllabusId: string, options: ExportOptions): Promise<void> {
+  const url = getExportMarkdownUrl(syllabusId, options);
+  await downloadFileFromUrl(url, `${syllabusId}.md`);
+}
+
+export async function downloadExportJson(syllabusId: string, options: ExportOptions): Promise<void> {
+  const url = getExportJsonUrl(syllabusId, options);
+  await downloadFileFromUrl(url, `${syllabusId}_backup.json`);
+}
+
+export function openPrintableHtml(syllabusId: string, options: ExportOptions): void {
+  const url = getExportHtmlUrl(syllabusId, options);
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+export async function restoreSyllabusBackup(
+  payload: BackupRestorePayload,
+  signal?: AbortSignal
+): Promise<BackupRestoreResult> {
+  const res = await fetch(`${API_BASE}/syllabus/restore-backup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  return handleResponse<BackupRestoreResult>(res);
+}
+
+export async function restoreSyllabusBackupFile(
+  file: File,
+  mode: 'clone' | 'replace',
+  targetSyllabusId?: string,
+  signal?: AbortSignal
+): Promise<BackupRestoreResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('mode', mode);
+  if (targetSyllabusId) {
+    formData.append('target_syllabus_id', targetSyllabusId);
+  }
+
+  const res = await fetch(`${API_BASE}/syllabus/restore-backup`, {
+    method: 'POST',
+    body: formData,
+    signal,
+  });
+  return handleResponse<BackupRestoreResult>(res);
+}
+
 

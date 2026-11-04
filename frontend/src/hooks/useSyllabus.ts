@@ -6,7 +6,9 @@ import {
   fetchParseReview,
   fetchSyllabiList,
   fetchSyllabus,
+  fetchSyllabusNotes,
   fetchSyllabusPacing,
+  fetchSyllabusResources,
   finalizeEnrollment,
   renameSyllabus,
   setNodeDeadline,
@@ -45,6 +47,42 @@ export function useSyllabus() {
   // Elective confirmation workflow state
   const [reviewData, setReviewData] = useState<ParseReviewResponse | null>(null);
   const [showElectiveModal, setShowElectiveModal] = useState<boolean>(false);
+
+  // Option-B: Notes & Resources State
+  const [noteLeafIds, setNoteLeafIds] = useState<Set<string>>(new Set());
+  const [resourceCounts, setResourceCounts] = useState<Record<string, number>>({});
+  const [activeNoteLeaf, setActiveNoteLeaf] = useState<{ id: string; title: string } | null>(null);
+  const [activeResourceNode, setActiveResourceNode] = useState<{
+    id: string;
+    type: 'subtopic' | 'module';
+    title: string;
+  } | null>(null);
+
+  const refreshNotesAndResources = useCallback(async (targetId?: string) => {
+    const sId = targetId || activeSyllabusIdRef.current;
+    if (!sId) {
+      setNoteLeafIds(new Set());
+      setResourceCounts({});
+      return;
+    }
+    try {
+      const [notes, resources] = await Promise.all([
+        fetchSyllabusNotes(sId).catch(() => []),
+        fetchSyllabusResources(sId).catch(() => []),
+      ]);
+
+      if (activeSyllabusIdRef.current === sId) {
+        setNoteLeafIds(new Set(notes.filter((n) => n.content.trim().length > 0).map((n) => n.leaf_id)));
+        const counts: Record<string, number> = {};
+        resources.forEach((r) => {
+          counts[r.node_id] = (counts[r.node_id] || 0) + 1;
+        });
+        setResourceCounts(counts);
+      }
+    } catch (err) {
+      console.error('Failed to load notes or resources:', err);
+    }
+  }, []);
 
   const refreshList = useCallback(async () => {
     try {
@@ -107,14 +145,17 @@ export function useSyllabus() {
           setPacingData({});
         }
       }
+      refreshNotesAndResources(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load syllabus');
       setActiveSyllabus(null);
       setPacingData({});
+      setNoteLeafIds(new Set());
+      setResourceCounts({});
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [refreshNotesAndResources]);
 
   const [activeUploadController, setActiveUploadController] = useState<AbortController | null>(null);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
@@ -190,6 +231,7 @@ export function useSyllabus() {
       setActiveSyllabus(result);
       await refreshList();
       await refreshPacing(result.syllabus.id);
+      await refreshNotesAndResources(result.syllabus.id);
 
       // If elective choices require confirmation, open modal immediately
       if (result.syllabus.requires_enrollment_confirmation) {
@@ -212,7 +254,7 @@ export function useSyllabus() {
       setUploadProgress(null);
       setActiveUploadController(null);
     }
-  }, [refreshList, refreshPacing]);
+  }, [refreshList, refreshPacing, refreshNotesAndResources]);
 
   const handleToggleLeaf = useCallback(async (leafId: string, isCompleted: boolean) => {
     if (!activeSyllabus) return;
@@ -347,12 +389,55 @@ export function useSyllabus() {
     }
   }, [activeSyllabus]);
 
+  // Option-B: Drawer and modal actions
+  const openNoteDrawer = useCallback((leafId: string, leafTitle: string) => {
+    setActiveNoteLeaf({ id: leafId, title: leafTitle });
+  }, []);
+
+  const closeNoteDrawer = useCallback(() => {
+    setActiveNoteLeaf(null);
+  }, []);
+
+  const handleNoteChange = useCallback((leafId: string, hasContent: boolean) => {
+    setNoteLeafIds((prev) => {
+      const next = new Set(prev);
+      if (hasContent) {
+        next.add(leafId);
+      } else {
+        next.delete(leafId);
+      }
+      return next;
+    });
+  }, []);
+
+  const openResourceModal = useCallback(
+    (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => {
+      setActiveResourceNode({ id: nodeId, type: nodeType, title: nodeTitle });
+    },
+    []
+  );
+
+  const closeResourceModal = useCallback(() => {
+    setActiveResourceNode(null);
+  }, []);
+
+  const handleResourceCountChange = useCallback((nodeId: string, count: number) => {
+    setResourceCounts((prev) => ({
+      ...prev,
+      [nodeId]: count,
+    }));
+  }, []);
+
   const clearError = () => setError(null);
 
   return {
     syllabi,
     activeSyllabus,
     pacingData,
+    noteLeafIds,
+    resourceCounts,
+    activeNoteLeaf,
+    activeResourceNode,
     health,
     isLoading,
     isUploading,
@@ -363,6 +448,7 @@ export function useSyllabus() {
     refreshList,
     refreshHealth,
     refreshPacing,
+    refreshNotesAndResources,
     selectSyllabus,
     uploadFile,
     cancelUpload,
@@ -372,10 +458,20 @@ export function useSyllabus() {
     handleDelete,
     handleSetDeadline,
     handleClearDeadline,
+    openNoteDrawer,
+    closeNoteDrawer,
+    handleNoteChange,
+    openResourceModal,
+    closeResourceModal,
+    handleResourceCountChange,
     clearActive: () => {
       activeSyllabusIdRef.current = null;
       setActiveSyllabus(null);
       setPacingData({});
+      setNoteLeafIds(new Set());
+      setResourceCounts({});
+      setActiveNoteLeaf(null);
+      setActiveResourceNode(null);
     },
     // Elective onboarding support
     reviewData,

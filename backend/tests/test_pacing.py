@@ -272,3 +272,4 @@ def test_state_machine_precedence_and_boundaries():
     p = calculate_node_pacing(subj, completed_5, target_date=date(2026, 11, 15), reference_date=ref)
     assert p.days_remaining == 14
     assert p.status == "on_track"
+

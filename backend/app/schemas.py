@@ -11,6 +11,7 @@ Document Root (HierarchicalSyllabus)
 
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union
+from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -577,3 +578,126 @@ class JobProgressResponse(BaseModel):
     syllabus_id: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+
+# --- Option-B: Notes, Resources & Export/Restore Schemas ---
+
+class SaveNoteRequest(BaseModel):
+    """Request to create or update a topic study note."""
+    model_config = ConfigDict(strict=False)
+    content: str = Field(..., max_length=50000, description="Markdown content (max 50,000 characters)")
+
+
+class NoteResponse(BaseModel):
+    """Topic note content and timestamp."""
+    model_config = ConfigDict(strict=False)
+    leaf_id: str
+    content: str
+    updated_at: Optional[datetime] = None
+
+
+ResourceType = Literal["youtube", "documentation", "slides", "github", "link"]
+ResourceNodeType = Literal["subtopic", "module"]
+
+
+class AddResourceRequest(BaseModel):
+    """Request to attach a learning resource to a Subtopic or Module."""
+    model_config = ConfigDict(strict=False)
+
+    node_id: str = Field(..., min_length=1, description="ID of subtopic leaf or module")
+    node_type: ResourceNodeType = Field(..., description="subtopic or module")
+    title: str = Field(..., min_length=1, max_length=200, description="Human-readable title")
+    url: str = Field(..., min_length=1, max_length=2048, description="Safe HTTP/HTTPS URL")
+    resource_type: ResourceType = Field(default="link", description="Resource category")
+
+    @field_validator("title")
+    @classmethod
+    def validate_title_non_empty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Title must not be empty or whitespace only")
+        return s
+
+    @field_validator("url")
+    @classmethod
+    def validate_safe_url(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("URL must not be empty")
+        parsed = urlparse(s)
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("URL scheme must be http or https")
+        if not parsed.netloc:
+            raise ValueError("URL must have a valid host/domain")
+        if parsed.username or parsed.password:
+            raise ValueError("Credentials in URL are strictly prohibited")
+        return s
+
+    @model_validator(mode="after")
+    def auto_detect_type(self) -> "AddResourceRequest":
+        if self.resource_type == "link":
+            parsed = urlparse(self.url)
+            netloc = (parsed.netloc or "").lower()
+            if "youtube.com" in netloc or "youtu.be" in netloc:
+                self.resource_type = "youtube"
+            elif "github.com" in netloc:
+                self.resource_type = "github"
+        return self
+
+
+class ResourceResponse(BaseModel):
+    """Learning resource representation."""
+    model_config = ConfigDict(strict=False)
+
+    id: int
+    node_id: str
+    node_type: str
+    title: str
+    url: str
+    resource_type: str
+    created_at: datetime
+
+
+class ExportOptions(BaseModel):
+    """Configuration options for syllabus export."""
+    include_notes: bool = True
+    include_resources: bool = True
+    include_pacing: bool = True
+    enrolled_only: bool = True
+
+
+class BackupRestoreRequest(BaseModel):
+    """Request payload to restore a syllabus backup."""
+    backup_data: Dict[str, Any]
+    mode: Literal["clone", "replace"] = "clone"
+    target_syllabus_id: Optional[str] = None
+
+
+class BackupRestoreResult(BaseModel):
+    """Result of restoring a syllabus backup."""
+    model_config = ConfigDict(strict=False)
+
+    success: bool = True
+    syllabus_id: str
+    restored_completed_leaves: int = 0
+    restored_notes: int = 0
+    restored_resources: int = 0
+    restored_deadlines: int = 0
+    warnings: List[str] = Field(default_factory=list)
+
+
+class BackupEnvelope(BaseModel):
+    """Versioned portable backup envelope (Schema 2.1)."""
+    model_config = ConfigDict(strict=False)
+
+    schema_version: str = "2.1"
+    application: str = "Hierarchical Syllabus Checklist & Progress Tracker"
+    exported_at: str
+    syllabus: Dict[str, Any]
+    enrollment: Optional[Dict[str, Any]] = None
+    completed_leaves: List[str] = Field(default_factory=list)
+    notes: Dict[str, str] = Field(default_factory=dict)
+    resources: List[Dict[str, Any]] = Field(default_factory=list)
+    deadlines: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+

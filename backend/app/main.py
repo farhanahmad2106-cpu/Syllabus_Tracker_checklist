@@ -7,32 +7,41 @@ import os
 import shutil
 import tempfile
 import uuid
+import re
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.database import (
+    add_topic_resource,
     delete_syllabus,
     delete_target_deadline,
+    delete_topic_note,
+    delete_topic_resource,
     finalize_syllabus_enrollment,
+    get_all_syllabus_notes,
+    get_all_syllabus_resources,
     get_completed_leaf_ids,
     get_db,
     get_syllabus_record,
     get_syllabus_review,
     get_target_deadline,
     get_target_deadlines,
+    get_topic_note,
+    get_topic_resources,
     init_db,
     list_syllabi_summaries,
     update_bulk_completion,
     update_leaf_completion,
     update_syllabus_title,
     upsert_target_deadline,
+    upsert_topic_note,
 )
 from backend.app.exceptions import (
     DocumentParserError,
@@ -52,19 +61,28 @@ from backend.app.extractor import (
 from backend.app.progress import (
     calculate_syllabus_progress,
     determine_bulk_toggle_action,
+    get_all_leaf_ids,
     get_node_descendant_leaf_ids,
     is_subject_enrolled,
     node_exists_in_syllabus,
 )
 from backend.app.schemas import (
+    AddResourceRequest,
     AppConfigResponse,
+    BackupEnvelope,
+    BackupRestoreRequest,
+    BackupRestoreResult,
     BulkToggleRequest,
+    ExportOptions,
     FinalizeEnrollmentRequest,
     HierarchicalSyllabus,
     JobProgressResponse,
     LeafToggleRequest,
+    NoteResponse,
     PacingMetrics,
     ParseReviewResponse,
+    ResourceResponse,
+    SaveNoteRequest,
     SetTargetDateRequest,
     StartUploadResponse,
     SyllabusPacingSummaryResponse,
@@ -73,9 +91,15 @@ from backend.app.schemas import (
     SyllabusSummary,
 )
 from backend.app.parser import validate_file_metadata
+from backend.app.services.export_service import (
+    generate_html_report,
+    generate_json_backup,
+    generate_markdown_export,
+)
 from backend.app.services.ingestion import ingest_syllabus_document, process_ingestion_job
 from backend.app.services.job_manager import job_manager
 from backend.app.services.pacing import calculate_node_pacing, find_node_in_syllabus
+from backend.app.services.restore_service import restore_backup
 
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger(__name__)
@@ -861,3 +885,455 @@ def clear_target_deadline(
         "status": "cleared",
         "node_id": node_id,
     }
+
+
+# --- Option-B: Topic Notes Endpoints ---
+
+@app.get("/api/syllabus/{syllabus_id}/notes", response_model=List[NoteResponse])
+def get_all_notes_for_syllabus(
+    syllabus_id: str,
+    session: Session = Depends(get_db),
+):
+    """Retrieve all topic notes for a syllabus."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    notes = get_all_syllabus_notes(session, syllabus_id)
+    return [
+        NoteResponse(
+            leaf_id=n.leaf_id,
+            content=n.content,
+            updated_at=n.updated_at,
+        )
+        for n in notes
+    ]
+
+
+@app.get("/api/syllabus/{syllabus_id}/notes/{leaf_id}", response_model=NoteResponse)
+def get_topic_study_note(
+    syllabus_id: str,
+    leaf_id: str,
+    session: Session = Depends(get_db),
+):
+    """Retrieve note for a specific topic leaf."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    valid_leaves = set(get_all_leaf_ids(syllabus))
+    if leaf_id not in valid_leaves:
+        raise InvalidLeafError(leaf_id)
+
+    note = get_topic_note(session, syllabus_id, leaf_id)
+    if not note:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No note found for topic '{leaf_id}'",
+        )
+
+    return NoteResponse(
+        leaf_id=note.leaf_id,
+        content=note.content,
+        updated_at=note.updated_at,
+    )
+
+
+@app.put("/api/syllabus/{syllabus_id}/notes/{leaf_id}", response_model=NoteResponse)
+def save_topic_study_note(
+    syllabus_id: str,
+    leaf_id: str,
+    payload: SaveNoteRequest,
+    session: Session = Depends(get_db),
+):
+    """Create or update persistent Markdown study note for a topic leaf."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    valid_leaves = set(get_all_leaf_ids(syllabus))
+    if leaf_id not in valid_leaves:
+        raise InvalidLeafError(leaf_id)
+
+    try:
+        note = upsert_topic_note(
+            session=session,
+            syllabus_id=syllabus_id,
+            leaf_id=leaf_id,
+            content=payload.content,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return NoteResponse(
+        leaf_id=note.leaf_id,
+        content=note.content,
+        updated_at=note.updated_at,
+    )
+
+
+@app.delete("/api/syllabus/{syllabus_id}/notes/{leaf_id}")
+def delete_topic_study_note(
+    syllabus_id: str,
+    leaf_id: str,
+    session: Session = Depends(get_db),
+):
+    """Delete a topic study note."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    deleted = delete_topic_note(session, syllabus_id, leaf_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No note found for topic '{leaf_id}'",
+        )
+
+    session.commit()
+    return {"status": "deleted", "leaf_id": leaf_id}
+
+
+# --- Option-B: Learning Resources Endpoints ---
+
+@app.get("/api/syllabus/{syllabus_id}/resources", response_model=List[ResourceResponse])
+def get_resources_for_syllabus(
+    syllabus_id: str,
+    node_id: Optional[str] = Query(default=None),
+    node_type: Optional[str] = Query(default=None),
+    session: Session = Depends(get_db),
+):
+    """Retrieve learning resources attached to subtopics or modules."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    resources = get_topic_resources(session, syllabus_id, node_id=node_id, node_type=node_type)
+    return [
+        ResourceResponse(
+            id=r.id,
+            node_id=r.node_id,
+            node_type=r.node_type,
+            title=r.title,
+            url=r.url,
+            resource_type=r.resource_type,
+            created_at=r.created_at,
+        )
+        for r in resources
+    ]
+
+
+@app.post("/api/syllabus/{syllabus_id}/resources", response_model=ResourceResponse, status_code=status.HTTP_201_CREATED)
+def add_resource_to_syllabus(
+    syllabus_id: str,
+    payload: AddResourceRequest,
+    session: Session = Depends(get_db),
+):
+    """Attach a learning resource (YouTube, Docs, Slides, GitHub, Link) to a subtopic or module."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+
+    if payload.node_type == "subtopic":
+        valid_leaves = set(get_all_leaf_ids(syllabus))
+        if payload.node_id not in valid_leaves:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Subtopic '{payload.node_id}' not found in syllabus",
+            )
+    elif payload.node_type == "module":
+        valid_modules = {
+            m.id
+            for yr in syllabus.years
+            for sem in yr.semesters
+            for s in sem.subjects
+            for m in s.modules
+        }
+        if payload.node_id not in valid_modules:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Module '{payload.node_id}' not found in syllabus",
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid node_type '{payload.node_type}'",
+        )
+
+    try:
+        res = add_topic_resource(
+            session=session,
+            syllabus_id=syllabus_id,
+            node_id=payload.node_id,
+            node_type=payload.node_type,
+            title=payload.title,
+            url=payload.url,
+            resource_type=payload.resource_type,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return ResourceResponse(
+        id=res.id,
+        node_id=res.node_id,
+        node_type=res.node_type,
+        title=res.title,
+        url=res.url,
+        resource_type=res.resource_type,
+        created_at=res.created_at,
+    )
+
+
+@app.delete("/api/syllabus/{syllabus_id}/resources/{resource_id}")
+def delete_resource_from_syllabus(
+    syllabus_id: str,
+    resource_id: int,
+    session: Session = Depends(get_db),
+):
+    """Delete a learning resource."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    deleted = delete_topic_resource(session, syllabus_id, resource_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Resource '{resource_id}' not found",
+        )
+
+    session.commit()
+    return {"status": "deleted", "resource_id": resource_id}
+
+
+# --- Option-B: Export, Backup & Restore Endpoints ---
+
+@app.get("/api/syllabus/{syllabus_id}/export/markdown")
+def export_syllabus_markdown(
+    syllabus_id: str,
+    include_notes: bool = Query(default=True),
+    include_resources: bool = Query(default=True),
+    include_pacing: bool = Query(default=True),
+    enrolled_only: bool = Query(default=True),
+    session: Session = Depends(get_db),
+):
+    """Export complete syllabus as a hierarchical Markdown checklist."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+
+    notes = get_all_syllabus_notes(session, syllabus_id)
+    notes_map = {n.leaf_id: n.content for n in notes}
+
+    resources = get_all_syllabus_resources(session, syllabus_id)
+
+    deadlines = get_target_deadlines(session, syllabus_id)
+    deadlines_map = {d.node_id: d for d in deadlines}
+
+    options = ExportOptions(
+        include_notes=include_notes,
+        include_resources=include_resources,
+        include_pacing=include_pacing,
+        enrolled_only=enrolled_only,
+    )
+
+    md_content = generate_markdown_export(
+        syllabus=syllabus,
+        completed_leaf_ids=completed_ids,
+        notes_map=notes_map,
+        resources_list=resources,
+        deadlines_map=deadlines_map,
+        options=options,
+    )
+
+    slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", syllabus.title).strip("_") or "syllabus"
+    filename = f"{slug}.md"
+
+    return Response(
+        content=md_content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/syllabus/{syllabus_id}/export/json")
+def export_syllabus_json(
+    syllabus_id: str,
+    include_notes: bool = Query(default=True),
+    include_resources: bool = Query(default=True),
+    include_pacing: bool = Query(default=True),
+    enrolled_only: bool = Query(default=True),
+    session: Session = Depends(get_db),
+):
+    """Export portable, versioned JSON backup envelope (Schema 2.1)."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+
+    notes = get_all_syllabus_notes(session, syllabus_id)
+    notes_map = {n.leaf_id: n.content for n in notes}
+
+    resources = get_all_syllabus_resources(session, syllabus_id)
+
+    deadlines = get_target_deadlines(session, syllabus_id)
+    deadlines_map = {d.node_id: d for d in deadlines}
+
+    options = ExportOptions(
+        include_notes=include_notes,
+        include_resources=include_resources,
+        include_pacing=include_pacing,
+        enrolled_only=enrolled_only,
+    )
+
+    backup_dict = generate_json_backup(
+        syllabus=syllabus,
+        completed_leaf_ids=completed_ids,
+        notes_map=notes_map,
+        resources_list=resources,
+        deadlines_map=deadlines_map,
+        options=options,
+    )
+
+    slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", syllabus.title).strip("_") or "syllabus"
+    filename = f"{slug}_backup.json"
+
+    return Response(
+        content=json.dumps(backup_dict, indent=2),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/syllabus/{syllabus_id}/export/html")
+def export_syllabus_html(
+    syllabus_id: str,
+    include_notes: bool = Query(default=True),
+    include_resources: bool = Query(default=True),
+    include_pacing: bool = Query(default=True),
+    enrolled_only: bool = Query(default=True),
+    session: Session = Depends(get_db),
+):
+    """Export self-contained, printable HTML report with print styles and XSS defense."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+
+    notes = get_all_syllabus_notes(session, syllabus_id)
+    notes_map = {n.leaf_id: n.content for n in notes}
+
+    resources = get_all_syllabus_resources(session, syllabus_id)
+
+    deadlines = get_target_deadlines(session, syllabus_id)
+    deadlines_map = {d.node_id: d for d in deadlines}
+
+    options = ExportOptions(
+        include_notes=include_notes,
+        include_resources=include_resources,
+        include_pacing=include_pacing,
+        enrolled_only=enrolled_only,
+    )
+
+    html_content = generate_html_report(
+        syllabus=syllabus,
+        completed_leaf_ids=completed_ids,
+        notes_map=notes_map,
+        resources_list=resources,
+        deadlines_map=deadlines_map,
+        options=options,
+    )
+
+    return Response(
+        content=html_content,
+        media_type="text/html; charset=utf-8",
+    )
+
+
+@app.post("/api/syllabus/restore-backup", response_model=BackupRestoreResult)
+async def restore_syllabus_backup_endpoint(
+    request: Request,
+    session: Session = Depends(get_db),
+):
+    """Restore a syllabus from a portable JSON backup file or JSON payload."""
+    content_type = request.headers.get("content-type", "")
+
+    backup_payload: Dict[str, Any] = {}
+    mode = "clone"
+    target_syllabus_id = None
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if not uploaded_file or not hasattr(uploaded_file, "read"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Form data missing 'file' upload",
+            )
+        file_bytes = await uploaded_file.read()
+        try:
+            backup_payload = json.loads(file_bytes.decode("utf-8"))
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is not valid JSON",
+            )
+        mode = form.get("mode", "clone")
+        target_syllabus_id = form.get("target_syllabus_id")
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request body must be valid JSON",
+            )
+        if "backup_data" in body:
+            backup_payload = body["backup_data"]
+            mode = body.get("mode", "clone")
+            target_syllabus_id = body.get("target_syllabus_id")
+        else:
+            backup_payload = body
+            mode = body.get("mode", "clone") if "mode" in body else "clone"
+            target_syllabus_id = body.get("target_syllabus_id")
+
+    try:
+        result = restore_backup(
+            session=session,
+            backup_data=backup_payload,
+            mode=mode,
+            target_syllabus_id=target_syllabus_id,
+        )
+        session.commit()
+        return result
+    except (HierarchyValidationError, SyllabusNotFoundError) as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to restore backup: {str(e)}",
+        )
+

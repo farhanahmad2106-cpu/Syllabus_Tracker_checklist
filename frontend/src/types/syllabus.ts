@@ -251,3 +251,56 @@ export interface SetTargetDatePayload {
   target_date: string;
 }
 
+// --- Option-B: Notes, Resources & Export/Restore Types ---
+
+export interface TopicNote {
+  leaf_id: string;
+  content: string;
+  updated_at?: string | null;
+}
+
+export type ResourceType = 'youtube' | 'documentation' | 'slides' | 'github' | 'link';
+export type ResourceNodeType = 'subtopic' | 'module';
+
+export interface TopicResource {
+  id: number;
+  node_id: string;
+  node_type: ResourceNodeType;
+  title: string;
+  url: string;
+  resource_type: ResourceType;
+  created_at: string;
+}
+
+export interface AddResourcePayload {
+  node_id: string;
+  node_type: ResourceNodeType;
+  title: string;
+  url: string;
+  resource_type?: ResourceType;
+}
+
+export interface ExportOptions {
+  include_notes: boolean;
+  include_resources: boolean;
+  include_pacing: boolean;
+  enrolled_only: boolean;
+}
+
+export interface BackupRestorePayload {
+  backup_data: Record<string, unknown>;
+  mode: 'clone' | 'replace';
+  target_syllabus_id?: string;
+}
+
+export interface BackupRestoreResult {
+  success: boolean;
+  syllabus_id: string;
+  restored_completed_leaves: number;
+  restored_notes: number;
+  restored_resources: number;
+  restored_deadlines: number;
+  warnings: string[];
+}
+
+
