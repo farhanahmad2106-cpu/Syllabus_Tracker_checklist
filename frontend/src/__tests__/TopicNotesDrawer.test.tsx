@@ -136,3 +136,4 @@ describe('TopicNotesDrawer Component', () => {
     expect(screen.getByLabelText('Markdown Preview')).toBeInTheDocument();
   });
 });
+

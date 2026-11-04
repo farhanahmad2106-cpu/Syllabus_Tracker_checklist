@@ -240,3 +240,4 @@ def test_restore_backup_validations_and_orphan_handling(client, db_session, base
     assert res_data["restored_notes"] == 1  # orphan skipped
     assert res_data["restored_resources"] == 0  # unsafe URL skipped
     assert len(res_data["warnings"]) >= 3
+

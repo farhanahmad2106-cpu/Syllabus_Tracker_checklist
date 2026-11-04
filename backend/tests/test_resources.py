@@ -223,3 +223,4 @@ def test_resource_cascade_deletion(client, db_session, sample_syllabus):
         select(TopicResource).where(TopicResource.syllabus_id == sample_syllabus.id)
     ).all()
     assert len(resources_after) == 0
+

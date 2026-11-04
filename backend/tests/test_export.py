@@ -207,3 +207,4 @@ def test_html_printable_export(client, db_session, exportable_syllabus):
     # XSS safety: raw tags should be escaped
     assert "&lt;b&gt;HTML&lt;/b&gt;" in html
     assert "<script>" not in html
+
