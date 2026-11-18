@@ -16,6 +16,7 @@
    a. Always follow the **checklists** for each phase of the project.
    b. Refer **Master_Context.md** for the complete context of the project.
    c. Do not execute tests until explicitly asked.
+   d. Always update the **Master_Context.md** and **Github Repo** after completing each phase.
 
 ---
 
