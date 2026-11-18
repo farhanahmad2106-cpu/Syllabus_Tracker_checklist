@@ -3,11 +3,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TopicNotesDrawer } from '../components/TopicNotesDrawer';
 import * as api from '../lib/api';
+import * as offlineStore from '../lib/offlineStore';
 
 vi.mock('../lib/api', () => ({
   fetchTopicNote: vi.fn(),
   saveTopicNote: vi.fn(),
   deleteTopicNote: vi.fn(),
+}));
+
+vi.mock('../lib/offlineStore', () => ({
+  enqueueMutation: vi.fn().mockResolvedValue({ id: 'mut_test_1' }),
+  getCachedSyllabus: vi.fn().mockResolvedValue(null),
 }));
 
 describe('TopicNotesDrawer Component', () => {
@@ -134,6 +140,67 @@ describe('TopicNotesDrawer Component', () => {
     fireEvent.click(previewBtn);
 
     expect(screen.getByLabelText('Markdown Preview')).toBeInTheDocument();
+  });
+
+  it('renders with mobile-first bottom-sheet classes and safe-area compatibility', async () => {
+    vi.mocked(api.fetchTopicNote).mockResolvedValue({
+      leaf_id: 'top_1',
+      content: '',
+      updated_at: null,
+    });
+
+    render(
+      <TopicNotesDrawer
+        isOpen={true}
+        onClose={vi.fn()}
+        syllabusId="syl_1"
+        leafId="top_1"
+        leafTitle="Binary Search Algorithm"
+      />
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Topic Notes Drawer' });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.className).toContain('max-h-[88dvh]');
+    expect(dialog.className).toContain('rounded-t-2xl');
+    expect(dialog.className).toContain('pb-safe');
+  });
+
+  it('enqueues note to offline store outbox when server save fails', async () => {
+    vi.mocked(api.fetchTopicNote).mockResolvedValue({
+      leaf_id: 'top_1',
+      content: 'Offline note draft',
+      updated_at: null,
+    });
+    vi.mocked(api.saveTopicNote).mockRejectedValue(new Error('Network offline'));
+
+    render(
+      <TopicNotesDrawer
+        isOpen={true}
+        onClose={vi.fn()}
+        syllabusId="syl_1"
+        leafId="top_1"
+        leafTitle="Binary Search Algorithm"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Markdown Note Editor')).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByLabelText('Markdown Note Editor');
+    fireEvent.change(textarea, { target: { value: 'Offline edited note content' } });
+
+    await waitFor(
+      () => {
+        expect(offlineStore.enqueueMutation).toHaveBeenCalledWith({
+          syllabusId: 'syl_1',
+          type: 'SAVE_NOTE',
+          payload: { leafId: 'top_1', content: 'Offline edited note content' },
+        });
+      },
+      { timeout: 1500 }
+    );
   });
 });
 

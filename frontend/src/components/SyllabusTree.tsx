@@ -377,22 +377,22 @@ const YearCard: React.FC<YearCardProps> = ({
     <div
       data-node-id={year.id}
       data-testid={`year-card-${year.id}`}
-      className={`border rounded-2xl shadow-xs overflow-hidden transition-all duration-200 ${
+      className={`border rounded-2xl shadow-xs overflow-hidden transition-all duration-200 pl-0 ${
         isTarget
           ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
           : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'
       }`}
     >
       {/* Year Header */}
-      <div className="flex items-center justify-between p-4 bg-[var(--bg-surface-elevated)] border-b border-[var(--border-subtle)] transition-colors">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between p-3.5 sm:p-4 bg-[var(--bg-surface-elevated)] border-b border-[var(--border-subtle)] transition-colors">
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0">
           <button
             type="button"
             onClick={() => onToggleExpand(year.id)}
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${year.title}`}
-            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            className="p-2 sm:p-1 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50 cursor-pointer"
           >
             <ChevronDown
               className={`w-4 h-4 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -408,11 +408,13 @@ const YearCard: React.FC<YearCardProps> = ({
             ariaLabel={`Select all topics in ${year.title}`}
           />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
               Tier 1 &bull;
             </span>
-            <h3 className="text-base font-bold text-[var(--text-primary)]">{year.title}</h3>
+            <h3 className="text-base font-bold text-[var(--text-primary)] break-words break-anywhere">
+              {year.title}
+            </h3>
           </div>
         </div>
 
@@ -509,22 +511,22 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
     <div
       data-node-id={sem.id}
       data-testid={`semester-card-${sem.id}`}
-      className={`border rounded-xl overflow-hidden transition-all duration-200 ${
+      className={`border rounded-xl overflow-hidden transition-all duration-200 ml-2.5 md:ml-4 ${
         isTarget
           ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
           : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'
       }`}
     >
       {/* Semester Header */}
-      <div className="flex items-center justify-between p-3.5 bg-[var(--bg-surface-elevated)]/80 border-b border-[var(--border-subtle)] transition-colors">
-        <div className="flex items-center gap-2.5 flex-wrap">
+      <div className="flex items-center justify-between p-3 sm:p-3.5 bg-[var(--bg-surface-elevated)]/80 border-b border-[var(--border-subtle)] transition-colors">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap min-w-0">
           <button
             type="button"
             onClick={() => onToggleExpand(sem.id)}
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${sem.title}`}
-            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            className="p-2 sm:p-1 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50 cursor-pointer"
           >
             <ChevronDown
               className={`w-4 h-4 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -540,9 +542,11 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
             ariaLabel={`Select all topics in ${sem.title}`}
           />
 
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <h4 className="text-sm font-bold text-[var(--text-primary)]">{sem.title}</h4>
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <Layers className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <h4 className="text-sm font-bold text-[var(--text-primary)] break-words break-anywhere">
+              {sem.title}
+            </h4>
           </div>
 
           {/* Option-A: Semester Pacing Badge */}
@@ -655,7 +659,7 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
     <div
       data-node-id={subj.id}
       data-testid={`subject-card-${subj.id}`}
-      className={`border rounded-xl overflow-hidden transition-all duration-200 ${
+      className={`border rounded-xl overflow-hidden transition-all duration-200 ml-2.5 md:ml-4 ${
         isTarget
           ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
           : isEnrolled
@@ -664,15 +668,15 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
       }`}
     >
       {/* Subject Header */}
-      <div className="flex items-center justify-between p-3 bg-[var(--bg-surface-elevated)]/60 hover:bg-[var(--bg-surface-hover)] border-b border-[var(--border-subtle)] transition-colors">
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
+      <div className="flex items-center justify-between p-2.5 sm:p-3 bg-[var(--bg-surface-elevated)]/60 hover:bg-[var(--bg-surface-hover)] border-b border-[var(--border-subtle)] transition-colors">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 flex-1">
           <button
             type="button"
             onClick={() => onToggleExpand(subj.id)}
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${subj.title}`}
-            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-blue-500/50"
+            className="p-2 sm:p-1 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-blue-500/50 cursor-pointer"
           >
             <ChevronDown
               className={`w-3.5 h-3.5 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -688,14 +692,14 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
             ariaLabel={`Select all topics in ${subj.title}`}
           />
 
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 flex-1">
             <BookOpen className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 shrink-0" />
             {subj.code && (
               <span className="px-1.5 py-0.5 text-[11px] font-mono tabular-nums font-medium rounded bg-blue-500/10 text-blue-600 dark:text-blue-300 border border-blue-500/20 shrink-0">
                 {subj.code}
               </span>
             )}
-            <h5 className="text-xs font-semibold text-[var(--text-primary)] truncate">{subj.title}</h5>
+            <h5 className="text-xs font-semibold text-[var(--text-primary)] break-words break-anywhere">{subj.title}</h5>
 
             {/* Badges */}
             {subj.is_lab && (
@@ -843,7 +847,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
     <div
       data-node-id={mod.id}
       data-testid={`module-card-${mod.id}`}
-      className={`border rounded-lg overflow-hidden transition-all duration-200 ${
+      className={`border rounded-lg overflow-hidden transition-all duration-200 ml-2 md:ml-4 ${
         isTarget
           ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
           : 'border-[var(--border-hairline)] bg-[var(--bg-surface-elevated)]/40'
@@ -851,14 +855,14 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
     >
       {/* Module Header */}
       <div className="flex items-center justify-between p-2.5 bg-[var(--bg-surface-elevated)]/70 hover:bg-[var(--bg-surface-hover)] border-b border-[var(--border-hairline)] transition-colors">
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 flex-1">
           <button
             type="button"
             onClick={() => onToggleExpand(mod.id)}
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${mod.title}`}
-            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            className="p-2 sm:p-1 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50 cursor-pointer"
           >
             <ChevronDown
               className={`w-3.5 h-3.5 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -874,14 +878,14 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
             ariaLabel={`Select all topics in ${mod.title}`}
           />
 
-          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
             <Folder className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400/80 shrink-0" />
             {mod.module_number && (
               <span className="text-[11px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-medium shrink-0">
                 {mod.module_number}:
               </span>
             )}
-            <h6 className="text-xs font-semibold text-[var(--text-primary)] truncate">{mod.title}</h6>
+            <h6 className="text-xs font-semibold text-[var(--text-primary)] break-words break-anywhere">{mod.title}</h6>
 
             {/* Contact hours badge: strictly rendered when positive finite number, NO negative placeholders */}
             {shouldRenderContactHours && (
@@ -1002,16 +1006,16 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
     <div
       data-node-id={topic.id}
       data-testid={`topic-row-${topic.id}`}
-      className={`flex items-center justify-between px-3 py-2 transition-all duration-200 group ${
+      className={`flex items-center justify-between px-2.5 py-1.5 sm:px-3 sm:py-2 pl-2 md:pl-4 transition-all duration-200 group min-h-[44px] ${
         isTarget
           ? 'ring-2 ring-emerald-500/80 bg-emerald-500/10 shadow-[0_0_16px_rgba(16,185,129,0.25)] highlight-target'
           : 'hover:bg-[var(--bg-surface-hover)]'
       }`}
     >
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
         <label
           htmlFor={checkboxId}
-          className="flex items-center gap-2.5 cursor-pointer select-none min-w-0"
+          className="flex items-center gap-2.5 cursor-pointer select-none min-w-0 flex-1 min-h-[44px] py-1"
         >
           <input
             id={checkboxId}
@@ -1022,7 +1026,7 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
             className="w-4 h-4 rounded border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-emerald-600 dark:text-emerald-500 focus:ring-emerald-500/50 focus:ring-offset-[var(--bg-canvas)] cursor-pointer transition-colors shrink-0"
           />
           <span
-            className={`text-xs transition-colors truncate ${
+            className={`text-xs transition-colors break-words break-anywhere leading-snug ${
               isCompleted
                 ? 'line-through text-[var(--text-muted)]'
                 : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
@@ -1041,13 +1045,13 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
             role="status"
           >
             <AlertCircle className="w-2.5 h-2.5" />
-            <span>Needs Review</span>
+            <span className="hidden sm:inline">Needs Review</span>
           </span>
         )}
       </div>
 
-      {/* Modernized Compact Right-Aligned Action Cluster */}
-      <div className="shrink-0 ml-2 flex items-center gap-1.5">
+      {/* Modernized Compact Right-Aligned Action Cluster with accessible touch targets */}
+      <div className="shrink-0 ml-2 flex items-center gap-1 sm:gap-1.5">
         {onOpenNote && (
           <button
             type="button"
@@ -1056,7 +1060,7 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
               e.stopPropagation();
               onOpenNote(topic.id, topic.title);
             }}
-            className={`p-1 rounded-md transition-colors cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-amber-500/50 ${
+            className={`min-h-[44px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1 rounded-md transition-colors cursor-pointer flex items-center justify-center focus:outline-hidden focus:ring-2 focus:ring-amber-500/50 ${
               hasNote
                 ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
                 : 'text-[var(--text-muted)] hover:text-amber-600 dark:hover:text-amber-300 hover:bg-[var(--bg-surface-hover)]'
@@ -1076,7 +1080,7 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
               e.stopPropagation();
               onOpenResource(topic.id, 'subtopic', topic.title);
             }}
-            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-colors cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 ${
+            className={`min-h-[44px] min-w-[36px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded-md text-[10px] flex items-center justify-center gap-1 transition-colors cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 ${
               resourceCount > 0
                 ? 'text-indigo-600 dark:text-indigo-300 bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20'
                 : 'text-[var(--text-muted)] hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-[var(--bg-surface-hover)] border border-transparent'
@@ -1112,23 +1116,25 @@ const BranchCheckbox: React.FC<BranchCheckboxProps> = ({
   ariaLabel,
 }) => {
   return (
-    <Checkbox.Root
-      checked={state}
-      disabled={disabled}
-      onCheckedChange={onToggle}
-      aria-label={ariaLabel}
-      className={`w-4 h-4 rounded-md flex items-center justify-center border transition-colors ${
-        state === true
-          ? 'bg-emerald-600 dark:bg-emerald-500 border-emerald-600 dark:border-emerald-500 text-white dark:text-gray-950 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
-          : state === 'indeterminate'
-          ? 'bg-emerald-950/80 border-emerald-500 text-emerald-400'
-          : 'bg-[var(--bg-surface-elevated)] border-[var(--border-strong)] hover:border-[var(--text-muted)]'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-    >
-      <Checkbox.Indicator>
-        {state === true && <Check className="w-3 h-3 stroke-[3]" />}
-        {state === 'indeterminate' && <Minus className="w-3 h-3 stroke-[3]" />}
-      </Checkbox.Indicator>
-    </Checkbox.Root>
+    <div className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center shrink-0 -m-2 sm:m-0">
+      <Checkbox.Root
+        checked={state}
+        disabled={disabled}
+        onCheckedChange={onToggle}
+        aria-label={ariaLabel}
+        className={`w-4 h-4 rounded-md flex items-center justify-center border transition-colors ${
+          state === true
+            ? 'bg-emerald-600 dark:bg-emerald-500 border-emerald-600 dark:border-emerald-500 text-white dark:text-gray-950 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+            : state === 'indeterminate'
+            ? 'bg-emerald-950/80 border-emerald-500 text-emerald-400'
+            : 'bg-[var(--bg-surface-elevated)] border-[var(--border-strong)] hover:border-[var(--text-muted)]'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+      >
+        <Checkbox.Indicator>
+          {state === true && <Check className="w-3 h-3 stroke-[3]" />}
+          {state === 'indeterminate' && <Minus className="w-3 h-3 stroke-[3]" />}
+        </Checkbox.Indicator>
+      </Checkbox.Root>
+    </div>
   );
 };

@@ -15,6 +15,7 @@ import {
   Edit3,
 } from 'lucide-react';
 import { fetchTopicNote, saveTopicNote, deleteTopicNote } from '../lib/api';
+import { enqueueMutation, getCachedSyllabus } from '../lib/offlineStore';
 
 interface TopicNotesDrawerProps {
   isOpen: boolean;
@@ -65,7 +66,21 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
           setInitialLoading(false);
         }
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        // Offline fallback: check cached snapshot
+        try {
+          const cached = await getCachedSyllabus(syllabusId);
+          const cachedNote = cached?.notes?.find((n) => n.leaf_id === leafId);
+          if (isMounted && cachedNote) {
+            setContent(cachedNote.content);
+            lastSavedContentRef.current = cachedNote.content;
+            setInitialLoading(false);
+            return;
+          }
+        } catch {
+          // ignore cache read failure
+        }
+
         if (isMounted) {
           console.error('Failed to load note:', err);
           setContent('');
@@ -82,7 +97,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
     };
   }, [isOpen, syllabusId, leafId]);
 
-  // Persist note to server
+  // Persist note to server or local offline queue
   const performSave = useCallback(
     async (textToSave: string) => {
       if (!leafId || !syllabusId) return;
@@ -99,9 +114,21 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
         setSaveStatus('saved');
         onNoteChange?.(leafId, textToSave.trim().length > 0);
       } catch (err: unknown) {
-        console.error('Failed to auto-save note:', err);
-        setSaveStatus('error');
-        setErrorMessage(err instanceof Error ? err.message : 'Failed to save note');
+        // Offline fallback: enqueue to IndexedDB outbox
+        try {
+          await enqueueMutation({
+            syllabusId,
+            type: 'SAVE_NOTE',
+            payload: { leafId, content: textToSave },
+          });
+          lastSavedContentRef.current = textToSave;
+          setSaveStatus('saved');
+          onNoteChange?.(leafId, textToSave.trim().length > 0);
+        } catch (storageErr) {
+          console.error('Failed to auto-save note:', err);
+          setSaveStatus('error');
+          setErrorMessage(err instanceof Error ? err.message : 'Failed to save note');
+        }
       }
     },
     [leafId, syllabusId, onNoteChange]
@@ -154,40 +181,61 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
       setSaveStatus('saved');
       onNoteChange?.(leafId, false);
     } catch (err: unknown) {
-      console.error('Failed to delete note:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to delete note');
+      try {
+        await enqueueMutation({
+          syllabusId,
+          type: 'DELETE_NOTE',
+          payload: { leafId },
+        });
+        setContent('');
+        lastSavedContentRef.current = '';
+        setSaveStatus('saved');
+        onNoteChange?.(leafId, false);
+      } catch {
+        console.error('Failed to delete note:', err);
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to delete note');
+      }
     }
   };
 
   // Safe markdown preview renderer
   const renderMarkdown = (text: string) => {
     if (!text.trim()) {
-      return <div className="text-gray-400 italic">No notes written yet. Start typing or use quick templates above.</div>;
+      return (
+        <div className="text-[var(--text-muted)] italic">
+          No notes written yet. Start typing or use quick templates above.
+        </div>
+      );
     }
 
-    // Split text into lines for block rendering
     const lines = text.split('\n');
     return (
-      <div className="space-y-2 text-sm text-gray-800 leading-relaxed font-sans">
+      <div className="space-y-2 text-sm text-[var(--text-primary)] leading-relaxed font-sans">
         {lines.map((line, idx) => {
           const trimmed = line.trim();
           if (trimmed.startsWith('# ')) {
             return (
-              <h1 key={idx} className="text-xl font-bold text-gray-900 border-b pb-1 mt-3 mb-1">
+              <h1
+                key={idx}
+                className="text-xl font-bold text-[var(--text-primary)] border-b border-[var(--border-subtle)] pb-1 mt-3 mb-1"
+              >
                 {trimmed.substring(2)}
               </h1>
             );
           }
           if (trimmed.startsWith('## ')) {
             return (
-              <h2 key={idx} className="text-lg font-bold text-gray-900 border-b pb-1 mt-2 mb-1">
+              <h2
+                key={idx}
+                className="text-lg font-bold text-[var(--text-primary)] border-b border-[var(--border-subtle)] pb-1 mt-2.5 mb-1"
+              >
                 {trimmed.substring(3)}
               </h2>
             );
           }
           if (trimmed.startsWith('### ')) {
             return (
-              <h3 key={idx} className="text-base font-semibold text-gray-900 mt-2 mb-1">
+              <h3 key={idx} className="text-base font-semibold text-[var(--text-primary)] mt-2 mb-1">
                 {trimmed.substring(4)}
               </h3>
             );
@@ -196,7 +244,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             return (
               <blockquote
                 key={idx}
-                className="border-l-4 border-blue-500 bg-blue-50/60 px-3 py-1.5 my-1 text-blue-900 rounded-r text-sm"
+                className="border-l-4 border-blue-500 bg-blue-500/10 px-3 py-1.5 my-1 text-blue-600 dark:text-blue-300 rounded-r text-sm"
               >
                 {trimmed.replace(/^>\s*(\[!NOTE\])?/, '').trim()}
               </blockquote>
@@ -212,7 +260,9 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
                   readOnly
                   className="rounded text-blue-600 focus:ring-0"
                 />
-                <span className={isChecked ? 'line-through text-gray-400' : 'text-gray-700'}>
+                <span
+                  className={isChecked ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}
+                >
                   {trimmed.substring(6)}
                 </span>
               </div>
@@ -221,8 +271,8 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
           if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
             return (
               <div key={idx} className="flex items-start gap-2 pl-3">
-                <span className="text-gray-400 font-bold">•</span>
-                <span className="text-gray-700">{trimmed.substring(2)}</span>
+                <span className="text-[var(--text-muted)] font-bold">•</span>
+                <span className="text-[var(--text-primary)]">{trimmed.substring(2)}</span>
               </div>
             );
           }
@@ -230,7 +280,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             return (
               <div
                 key={idx}
-                className="bg-purple-50 border border-purple-200 text-purple-950 font-mono text-center p-2 rounded my-1"
+                className="bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-300 font-mono text-center p-2 rounded my-1"
               >
                 {trimmed.substring(2, trimmed.length - 2).trim()}
               </div>
@@ -240,7 +290,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             return (
               <pre
                 key={idx}
-                className="bg-gray-900 text-gray-100 p-2.5 rounded font-mono text-xs overflow-x-auto my-1"
+                className="bg-[var(--bg-canvas)] text-[var(--text-primary)] p-2.5 rounded font-mono text-xs overflow-x-auto my-1 border border-[var(--border-subtle)]"
               >
                 {trimmed}
               </pre>
@@ -259,24 +309,30 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 backdrop-blur-xs flex justify-end">
+    <div
+      className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-xs flex justify-end items-end sm:items-stretch"
+      data-testid="topic-notes-drawer-backdrop"
+    >
       <div
-        className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out border-l border-gray-200"
+        className="w-full max-h-[88dvh] sm:max-h-none sm:h-full sm:max-w-2xl bg-[var(--bg-surface)] rounded-t-2xl sm:rounded-none shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out border-t sm:border-t-0 sm:border-l border-[var(--border-subtle)] pb-safe"
         role="dialog"
         aria-modal="true"
         aria-label="Topic Notes Drawer"
       >
+        {/* Mobile drag handle indicator */}
+        <div className="w-12 h-1.5 bg-[var(--text-muted)]/30 rounded-full mx-auto my-2 sm:hidden shrink-0" />
+
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/80">
+        <div className="px-5 sm:px-6 py-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)]">
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="p-2 bg-blue-100 text-blue-700 rounded-lg shrink-0">
+            <div className="p-2 bg-blue-500/15 text-blue-600 dark:text-blue-400 rounded-lg shrink-0">
               <FileText className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-bold text-gray-900 truncate">
+              <h2 className="text-base font-bold text-[var(--text-primary)] truncate">
                 Study Notes &amp; Cheat Sheet
               </h2>
-              <p className="text-xs text-gray-500 truncate" title={leafTitle}>
+              <p className="text-xs text-[var(--text-muted)] truncate" title={leafTitle}>
                 {leafTitle}
               </p>
             </div>
@@ -284,7 +340,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={onClose}
-              className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+              className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
               aria-label="Close notes drawer"
             >
               <X className="w-5 h-5" />
@@ -293,14 +349,14 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
         </div>
 
         {/* Toolbar */}
-        <div className="px-6 py-2.5 border-b border-gray-100 bg-white flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="px-4 sm:px-6 py-2.5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-wrap items-center justify-between gap-2 text-xs">
           {/* Quick Insert Buttons */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-gray-400 font-medium mr-1 text-[11px]">Insert:</span>
+            <span className="text-[var(--text-muted)] font-medium mr-1 text-[11px]">Insert:</span>
             <button
               type="button"
               onClick={() => insertTemplate('\n> [!NOTE]\n> ')}
-              className="px-2 py-1 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-700 rounded flex items-center gap-1 transition-colors"
+              className="px-2 py-1 bg-[var(--bg-surface-elevated)] hover:bg-blue-500/10 hover:text-blue-600 dark:hover:text-blue-400 text-[var(--text-secondary)] rounded flex items-center gap-1 transition-colors border border-[var(--border-subtle)] cursor-pointer"
               title="Insert Note Block"
             >
               <BookOpen className="w-3.5 h-3.5" /> Note
@@ -308,7 +364,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             <button
               type="button"
               onClick={() => insertTemplate('\n$$ \n$$\n')}
-              className="px-2 py-1 bg-gray-100 hover:bg-purple-50 hover:text-purple-700 text-gray-700 rounded flex items-center gap-1 transition-colors"
+              className="px-2 py-1 bg-[var(--bg-surface-elevated)] hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400 text-[var(--text-secondary)] rounded flex items-center gap-1 transition-colors border border-[var(--border-subtle)] cursor-pointer"
               title="Insert Math/Formula Block"
             >
               <Sigma className="w-3.5 h-3.5" /> Formula
@@ -316,7 +372,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             <button
               type="button"
               onClick={() => insertTemplate('\n- [ ] ')}
-              className="px-2 py-1 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-700 text-gray-700 rounded flex items-center gap-1 transition-colors"
+              className="px-2 py-1 bg-[var(--bg-surface-elevated)] hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 text-[var(--text-secondary)] rounded flex items-center gap-1 transition-colors border border-[var(--border-subtle)] cursor-pointer"
               title="Insert Action Item"
             >
               <ListTodo className="w-3.5 h-3.5" /> Checklist
@@ -324,7 +380,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             <button
               type="button"
               onClick={() => insertTemplate('\n```python\n\n```\n')}
-              className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded flex items-center gap-1 transition-colors"
+              className="px-2 py-1 bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] rounded flex items-center gap-1 transition-colors border border-[var(--border-subtle)] cursor-pointer"
               title="Insert Code Block"
             >
               <Code className="w-3.5 h-3.5" /> Code
@@ -332,14 +388,14 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
           </div>
 
           {/* View Mode Toggle */}
-          <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+          <div className="flex items-center bg-[var(--bg-surface-elevated)] p-0.5 rounded-lg border border-[var(--border-subtle)]">
             <button
               type="button"
               onClick={() => setViewMode('edit')}
-              className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors ${
+              className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                 viewMode === 'edit'
-                  ? 'bg-white text-gray-900 shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
             >
               <Edit3 className="w-3.5 h-3.5" /> Edit
@@ -347,10 +403,10 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('preview')}
-              className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors ${
+              className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                 viewMode === 'preview'
-                  ? 'bg-white text-gray-900 shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
             >
               <Eye className="w-3.5 h-3.5" /> Preview
@@ -358,10 +414,10 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('split')}
-              className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors ${
+              className={`hidden sm:flex px-2.5 py-1 rounded text-xs font-medium items-center gap-1 transition-colors cursor-pointer ${
                 viewMode === 'split'
-                  ? 'bg-white text-gray-900 shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
             >
               Split
@@ -370,9 +426,9 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-hidden p-6 flex flex-col">
+        <div className="flex-1 overflow-hidden p-4 sm:p-6 flex flex-col">
           {initialLoading ? (
-            <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+            <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
               <Clock className="w-5 h-5 animate-spin mr-2" /> Loading notes...
             </div>
           ) : (
@@ -385,7 +441,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
                     value={content}
                     onChange={(e) => handleContentChange(e.target.value)}
                     placeholder="Write Markdown study notes, lecture summaries, key equations, or cheat sheet concepts..."
-                    className="flex-1 w-full p-4 border border-gray-200 rounded-lg font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent leading-relaxed bg-gray-50/40"
+                    className="flex-1 w-full p-4 border border-[var(--border-subtle)] rounded-xl font-mono text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50 leading-relaxed bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] placeholder-[var(--text-muted)]"
                     maxLength={50000}
                     aria-label="Markdown Note Editor"
                   />
@@ -395,7 +451,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
               {/* Preview Pane */}
               {(viewMode === 'preview' || viewMode === 'split') && (
                 <div
-                  className={`flex flex-col h-full overflow-y-auto p-4 border border-gray-100 rounded-lg bg-gray-50/60 ${
+                  className={`flex flex-col h-full overflow-y-auto p-4 border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-surface-elevated)] ${
                     viewMode === 'split' ? 'w-1/2' : 'w-full'
                   }`}
                   aria-label="Markdown Preview"
@@ -407,7 +463,7 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
           )}
 
           {errorMessage && (
-            <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded flex items-center gap-1.5 border border-red-200">
+            <div className="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-500/10 p-2.5 rounded-lg flex items-center gap-1.5 border border-red-500/20">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
@@ -415,35 +471,35 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
         </div>
 
         {/* Footer / Status Bar */}
-        <div className="px-6 py-3 border-t border-gray-200 bg-gray-50 flex items-center justify-between text-xs text-gray-500">
-          <div className="flex items-center gap-4">
+        <div className="px-5 sm:px-6 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
+          <div className="flex items-center gap-3">
             {/* Auto-save Status Indicator */}
             <div className="flex items-center gap-1.5 font-medium">
               {saveStatus === 'saved' && (
-                <span className="flex items-center gap-1 text-emerald-600">
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 className="w-4 h-4" /> All changes saved
                 </span>
               )}
               {saveStatus === 'saving' && (
-                <span className="flex items-center gap-1 text-blue-600">
+                <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
                   <Clock className="w-4 h-4 animate-spin" /> Saving...
                 </span>
               )}
               {saveStatus === 'unsaved' && (
-                <span className="flex items-center gap-1 text-amber-600">
+                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                   <Save className="w-4 h-4" /> Unsaved changes
                 </span>
               )}
               {saveStatus === 'error' && (
-                <span className="flex items-center gap-1 text-red-600">
+                <span className="flex items-center gap-1 text-red-600 dark:text-red-400">
                   <AlertCircle className="w-4 h-4" /> Save failed
                 </span>
               )}
             </div>
 
             {/* Character Count */}
-            <span className="text-gray-400 border-l border-gray-200 pl-4">
-              {content.length.toLocaleString()} / 50,000 characters
+            <span className="text-[var(--text-muted)] border-l border-[var(--border-subtle)] pl-3 hidden sm:inline">
+              {content.length.toLocaleString()} / 50,000 chars
             </span>
           </div>
 
@@ -452,16 +508,16 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
               <button
                 type="button"
                 onClick={handleDeleteNote}
-                className="px-2.5 py-1 text-red-600 hover:bg-red-50 rounded flex items-center gap-1 transition-colors"
+                className="px-2.5 py-1 text-red-600 dark:text-red-400 hover:bg-red-500/10 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                 title="Clear entire note"
               >
-                <Trash2 className="w-3.5 h-3.5" /> Clear Note
+                <Trash2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Clear Note</span>
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded font-medium transition-colors"
+              className="px-3.5 py-1.5 bg-[var(--bg-surface-hover)] hover:bg-[var(--bg-surface-active)] text-[var(--text-primary)] rounded-lg font-medium transition-colors border border-[var(--border-subtle)] cursor-pointer"
             >
               Done
             </button>

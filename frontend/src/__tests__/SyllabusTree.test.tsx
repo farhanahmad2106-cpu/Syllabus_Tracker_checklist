@@ -671,6 +671,39 @@ describe('SyllabusTree', () => {
       expect(targetElement).toBeInTheDocument();
       expect(targetElement).toHaveAttribute('data-node-id', 'top_target_deep');
     });
+
+    it('applies exact 5-tier adaptive indentation and touch ergonomics across all levels', () => {
+      render(
+        <SyllabusTree
+          syllabus={canonical5TierSyllabus}
+          completedLeafIds={[]}
+          nodeProgress={{}}
+          onToggleLeaf={vi.fn()}
+          onToggleBranch={vi.fn()}
+        />
+      );
+
+      // Tier 1: YearCard pl-0
+      const yearCard = screen.getByTestId('year-card-yr_1');
+      expect(yearCard.className).toContain('pl-0');
+
+      // Tier 2: SemesterCard ml-2.5 md:ml-4
+      const semCard = screen.getByTestId('semester-card-sem_1');
+      expect(semCard.className).toContain('ml-2.5 md:ml-4');
+
+      // Tier 3: SubjectCard ml-2.5 md:ml-4
+      const subjCard = screen.getByTestId('subject-card-subj_ai101');
+      expect(subjCard.className).toContain('ml-2.5 md:ml-4');
+
+      // Tier 4: ModuleCard ml-2 md:ml-4
+      const modCard = screen.getByTestId('module-card-mod_ai_m1');
+      expect(modCard.className).toContain('ml-2 md:ml-4');
+
+      // Tier 5: TopicLeafRow pl-2 md:pl-4 and min-h-[44px]
+      const topicRow = screen.getByTestId('topic-row-top_ai_search');
+      expect(topicRow.className).toContain('pl-2 md:pl-4');
+      expect(topicRow.className).toContain('min-h-[44px]');
+    });
   });
 });
 

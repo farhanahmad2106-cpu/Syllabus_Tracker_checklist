@@ -18,6 +18,13 @@ import {
   uploadSyllabusFile,
 } from '../lib/api';
 import {
+  deleteCachedSyllabus,
+  enqueueMutation,
+  getAllCachedSyllabi,
+  getCachedSyllabus,
+  saveSyllabusSnapshot,
+} from '../lib/offlineStore';
+import {
   getDescendantLeafIds,
   getProgressSummary,
   toggleBranchCompletion,
@@ -100,6 +107,27 @@ export function useSyllabus() {
       setSyllabi(list);
     } catch (err) {
       console.error('Failed to load syllabi list:', err);
+      // Offline fallback: load cached syllabi from IndexedDB
+      try {
+        const cached = await getAllCachedSyllabi();
+        if (cached.length > 0) {
+          const summaries: SyllabusSummary[] = cached.map((c) => ({
+            id: c.data.syllabus.id,
+            title: c.data.syllabus.title,
+            source_filename: c.data.syllabus.source_filename,
+            source_type: c.data.syllabus.source_type,
+            source_url: c.data.syllabus.source_url,
+            created_at: new Date(c.updatedAt).toISOString(),
+            schema_version: c.data.syllabus.schema_version,
+            total_topics: c.data.progress.total_leaf_nodes,
+            completed_topics: c.data.progress.completed_leaf_nodes,
+            completion_percentage: c.data.progress.percentage,
+          }));
+          setSyllabi(summaries);
+        }
+      } catch (cacheErr) {
+        console.warn('Failed to load cached syllabi:', cacheErr);
+      }
     }
   }, []);
 
@@ -140,28 +168,58 @@ export function useSyllabus() {
     setIsLoading(true);
     setError(null);
     activeSyllabusIdRef.current = id;
-    setPacingData({});
+    
+    // 1. Immediately hydrate from IndexedDB cache if available
+    let hasCached = false;
+    try {
+      const cached = await getCachedSyllabus(id);
+      if (cached && activeSyllabusIdRef.current === id) {
+        setActiveSyllabus(cached.data);
+        if (cached.pacing) setPacingData(cached.pacing);
+        if (cached.notes) {
+          setSyllabusNotes(cached.notes);
+          setNoteLeafIds(new Set(cached.notes.filter((n) => n.content.trim().length > 0).map((n) => n.leaf_id)));
+        }
+        if (cached.resources) {
+          setSyllabusResources(cached.resources);
+          const counts: Record<string, number> = {};
+          cached.resources.forEach((r) => { counts[r.node_id] = (counts[r.node_id] || 0) + 1; });
+          setResourceCounts(counts);
+        }
+        hasCached = true;
+      }
+    } catch (cacheErr) {
+      console.warn('Failed to load cached snapshot:', cacheErr);
+    }
+
+    // 2. Fetch fresh from server if online
     try {
       const data = await fetchSyllabus(id);
-      setActiveSyllabus(data);
+      if (activeSyllabusIdRef.current === id) {
+        setActiveSyllabus(data);
+      }
+      let loadedPacing: Record<string, PacingMetrics> = {};
       try {
         const pacing = await fetchSyllabusPacing(id);
         if (activeSyllabusIdRef.current === id) {
-          setPacingData(pacing.deadlines || {});
+          loadedPacing = pacing.deadlines || {};
+          setPacingData(loadedPacing);
         }
       } catch (pacingErr) {
         console.error('Failed to load pacing summary:', pacingErr);
-        if (activeSyllabusIdRef.current === id) {
-          setPacingData({});
-        }
       }
-      refreshNotesAndResources(id);
+      await refreshNotesAndResources(id);
+
+      // Save fresh snapshot to IndexedDB cache
+      saveSyllabusSnapshot(data, { pacing: loadedPacing }).catch(() => {});
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load syllabus');
-      setActiveSyllabus(null);
-      setPacingData({});
-      setNoteLeafIds(new Set());
-      setResourceCounts({});
+      if (!hasCached) {
+        setError(err instanceof Error ? err.message : 'Failed to load syllabus');
+        setActiveSyllabus(null);
+        setPacingData({});
+        setNoteLeafIds(new Set());
+        setResourceCounts({});
+      }
     } finally {
       setIsLoading(false);
     }
@@ -331,26 +389,40 @@ export function useSyllabus() {
       enrolledLeaves.length
     );
 
-    setActiveSyllabus({
+    const optimisticData: SyllabusResponse = {
       ...prev,
       completed_leaf_ids: Array.from(nextCompleted),
       progress: nextProg,
-    });
+    };
+    setActiveSyllabus(optimisticData);
+
+    // Save optimistic state to offline storage
+    saveSyllabusSnapshot(optimisticData, { pacing: pacingData }).catch(() => {});
 
     setIsMutating(true);
     try {
       const updated = await toggleLeaf(prev.syllabus.id, leafId, isCompleted);
       setActiveSyllabus(updated);
+      saveSyllabusSnapshot(updated, { pacing: pacingData }).catch(() => {});
       await refreshList();
       await refreshPacing(prev.syllabus.id);
     } catch (err) {
-      // Rollback on failure
-      setActiveSyllabus(prev);
-      setError(err instanceof Error ? err.message : 'Failed to update leaf completion');
+      // Offline fallback: enqueue to local outbox instead of rolling back
+      try {
+        await enqueueMutation({
+          syllabusId: prev.syllabus.id,
+          type: 'TOGGLE_LEAF',
+          payload: { leafId, isCompleted },
+        });
+      } catch (storageErr) {
+        // Rollback only if local storage failed
+        setActiveSyllabus(prev);
+        setError(err instanceof Error ? err.message : 'Failed to update leaf completion');
+      }
     } finally {
       setIsMutating(false);
     }
-  }, [activeSyllabus, refreshList, refreshPacing]);
+  }, [activeSyllabus, pacingData, refreshList, refreshPacing]);
 
   const handleToggleBranch = useCallback(async (nodeId: string, isCompleted: boolean) => {
     if (!activeSyllabus) return;
@@ -369,41 +441,74 @@ export function useSyllabus() {
       enrolledLeaves.length
     );
 
-    setActiveSyllabus({
+    const optimisticData: SyllabusResponse = {
       ...prev,
       completed_leaf_ids: Array.from(nextCompleted),
       progress: nextProg,
-    });
+    };
+    setActiveSyllabus(optimisticData);
+
+    saveSyllabusSnapshot(optimisticData, { pacing: pacingData }).catch(() => {});
 
     setIsMutating(true);
     try {
       const updated = await toggleBranch(prev.syllabus.id, nodeId, isCompleted);
       setActiveSyllabus(updated);
+      saveSyllabusSnapshot(updated, { pacing: pacingData }).catch(() => {});
       await refreshList();
       await refreshPacing(prev.syllabus.id);
     } catch (err) {
-      // Rollback on failure
-      setActiveSyllabus(prev);
-      setError(err instanceof Error ? err.message : 'Failed to update branch completion');
+      try {
+        await enqueueMutation({
+          syllabusId: prev.syllabus.id,
+          type: 'BULK_TOGGLE',
+          payload: { nodeId, isCompleted },
+        });
+      } catch (storageErr) {
+        setActiveSyllabus(prev);
+        setError(err instanceof Error ? err.message : 'Failed to update branch completion');
+      }
     } finally {
       setIsMutating(false);
     }
-  }, [activeSyllabus, refreshList, refreshPacing]);
+  }, [activeSyllabus, pacingData, refreshList, refreshPacing]);
 
   const handleRename = useCallback(async (newTitle: string) => {
     if (!activeSyllabus) return;
+    const prev = activeSyllabus;
+    const optimisticData: SyllabusResponse = {
+      ...prev,
+      syllabus: {
+        ...prev.syllabus,
+        title: newTitle,
+      },
+    };
+    setActiveSyllabus(optimisticData);
+
     try {
-      const updated = await renameSyllabus(activeSyllabus.syllabus.id, newTitle);
+      const updated = await renameSyllabus(prev.syllabus.id, newTitle);
       setActiveSyllabus(updated);
+      saveSyllabusSnapshot(updated, { pacing: pacingData }).catch(() => {});
       await refreshList();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to rename syllabus');
+      try {
+        await enqueueMutation({
+          syllabusId: prev.syllabus.id,
+          type: 'RENAME_SYLLABUS',
+          payload: { title: newTitle },
+        });
+        saveSyllabusSnapshot(optimisticData, { pacing: pacingData }).catch(() => {});
+      } catch {
+        setActiveSyllabus(prev);
+        setError(err instanceof Error ? err.message : 'Failed to rename syllabus');
+      }
     }
-  }, [activeSyllabus, refreshList]);
+  }, [activeSyllabus, pacingData, refreshList]);
 
   const handleDelete = useCallback(async (syllabusId: string) => {
     try {
       await deleteSyllabus(syllabusId);
+      await deleteCachedSyllabus(syllabusId);
       if (activeSyllabus?.syllabus.id === syllabusId) {
         activeSyllabusIdRef.current = null;
         setActiveSyllabus(null);
@@ -425,9 +530,17 @@ export function useSyllabus() {
         [metrics.node_id]: metrics,
       }));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to set deadline';
-      setError(msg);
-      throw err;
+      try {
+        await enqueueMutation({
+          syllabusId: sId,
+          type: 'SET_DEADLINE',
+          payload,
+        });
+      } catch {
+        const msg = err instanceof Error ? err.message : 'Failed to set deadline';
+        setError(msg);
+        throw err;
+      }
     }
   }, [activeSyllabus]);
 
@@ -442,9 +555,22 @@ export function useSyllabus() {
         return copy;
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to clear deadline';
-      setError(msg);
-      throw err;
+      try {
+        await enqueueMutation({
+          syllabusId: sId,
+          type: 'CLEAR_DEADLINE',
+          payload: { nodeId },
+        });
+        setPacingData((prev) => {
+          const copy = { ...prev };
+          delete copy[nodeId];
+          return copy;
+        });
+      } catch {
+        const msg = err instanceof Error ? err.message : 'Failed to clear deadline';
+        setError(msg);
+        throw err;
+      }
     }
   }, [activeSyllabus]);
 

@@ -10,11 +10,11 @@ import {
   Code,
   Link as LinkIcon,
   AlertCircle,
-  Clock,
   Layers,
 } from 'lucide-react';
 import type { TopicResource, ResourceType, ResourceNodeType } from '../types/syllabus';
 import { fetchSyllabusResources, addTopicResource, deleteTopicResource } from '../lib/api';
+import { enqueueMutation, getCachedSyllabus } from '../lib/offlineStore';
 
 interface TopicResourcesModalProps {
   isOpen: boolean;
@@ -60,7 +60,22 @@ export const TopicResourcesModal: React.FC<TopicResourcesModalProps> = ({
           setLoading(false);
         }
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        // Offline fallback: check cached snapshot
+        try {
+          const cached = await getCachedSyllabus(syllabusId);
+          const cachedResources = (cached?.resources || []).filter(
+            (r) => r.node_id === nodeId && (!nodeType || r.node_type === nodeType)
+          );
+          if (isMounted && cachedResources.length > 0) {
+            setResources(cachedResources);
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // ignore cache error
+        }
+
         if (isMounted) {
           console.error('Failed to load resources:', err);
           setErrorMessage(err instanceof Error ? err.message : 'Failed to load resources');
@@ -104,26 +119,55 @@ export const TopicResourcesModal: React.FC<TopicResourcesModalProps> = ({
     setAdding(true);
     setErrorMessage(null);
 
-    try {
-      const created = await addTopicResource(syllabusId, {
-        node_id: nodeId,
-        node_type: nodeType,
-        title: trimmedTitle,
-        url: trimmedUrl,
-        resource_type: resourceType,
-      });
+    const payload = {
+      node_id: nodeId,
+      node_type: nodeType,
+      title: trimmedTitle,
+      url: trimmedUrl,
+      resource_type: resourceType,
+    };
 
+    try {
+      const created = await addTopicResource(syllabusId, payload);
       const updated = [...resources, created];
       setResources(updated);
       onResourceCountChange?.(nodeId, updated.length);
 
-      // Reset form
       setTitle('');
       setUrl('');
       setResourceType('link');
     } catch (err: unknown) {
-      console.error('Failed to add resource:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to add resource');
+      // Offline fallback: enqueue to local outbox
+      try {
+        await enqueueMutation({
+          syllabusId,
+          type: 'ADD_RESOURCE',
+          payload,
+        });
+
+        // Optimistic local resource item
+        const optimisticResource: TopicResource = {
+          id: -Date.now(),
+          syllabus_id: syllabusId,
+          node_id: nodeId,
+          node_type: nodeType,
+          title: trimmedTitle,
+          url: trimmedUrl,
+          resource_type: resourceType,
+          created_at: new Date().toISOString(),
+        };
+
+        const updated = [...resources, optimisticResource];
+        setResources(updated);
+        onResourceCountChange?.(nodeId, updated.length);
+
+        setTitle('');
+        setUrl('');
+        setResourceType('link');
+      } catch (storageErr) {
+        console.error('Failed to add resource:', err);
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to add resource');
+      }
     } finally {
       setAdding(false);
     }
@@ -132,59 +176,75 @@ export const TopicResourcesModal: React.FC<TopicResourcesModalProps> = ({
   const handleDelete = async (resourceId: number) => {
     if (!syllabusId || !nodeId) return;
     try {
-      await deleteTopicResource(syllabusId, resourceId);
+      if (resourceId > 0) {
+        await deleteTopicResource(syllabusId, resourceId);
+      }
       const updated = resources.filter((r) => r.id !== resourceId);
       setResources(updated);
       onResourceCountChange?.(nodeId, updated.length);
     } catch (err: unknown) {
-      console.error('Failed to delete resource:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to delete resource');
+      try {
+        await enqueueMutation({
+          syllabusId,
+          type: 'DELETE_RESOURCE',
+          payload: { resourceId },
+        });
+        const updated = resources.filter((r) => r.id !== resourceId);
+        setResources(updated);
+        onResourceCountChange?.(nodeId, updated.length);
+      } catch {
+        console.error('Failed to delete resource:', err);
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to delete resource');
+      }
     }
   };
 
   const renderResourceIcon = (type: ResourceType) => {
     switch (type) {
       case 'youtube':
-        return <Video className="w-4 h-4 text-red-600" />;
+        return <Video className="w-4 h-4 text-red-500" />;
       case 'github':
-        return <Code className="w-4 h-4 text-purple-700" />;
+        return <Code className="w-4 h-4 text-purple-500" />;
       case 'documentation':
-        return <FileText className="w-4 h-4 text-blue-600" />;
+        return <FileText className="w-4 h-4 text-blue-500" />;
       case 'slides':
-        return <Presentation className="w-4 h-4 text-amber-600" />;
+        return <Presentation className="w-4 h-4 text-amber-500" />;
       default:
-        return <LinkIcon className="w-4 h-4 text-gray-500" />;
+        return <LinkIcon className="w-4 h-4 text-[var(--text-muted)]" />;
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 pb-safe"
+      data-testid="topic-resources-modal-backdrop"
+    >
       <div
-        className="w-full max-w-lg bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
+        className="w-full max-w-lg bg-[var(--bg-surface)] rounded-2xl shadow-2xl border border-[var(--border-subtle)] overflow-hidden flex flex-col max-h-[90dvh]"
         role="dialog"
         aria-modal="true"
         aria-label="Learning Resources Modal"
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+        <div className="px-5 sm:px-6 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)]">
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg shrink-0">
+            <div className="p-2 bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
               <Layers className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-bold text-gray-900 truncate">
+              <h2 className="text-base font-bold text-[var(--text-primary)] truncate">
                 {nodeType === 'module' ? 'Module Resources & Lecture Links' : 'Topic Learning Resources'}
               </h2>
-              <p className="text-xs text-gray-500 truncate" title={nodeTitle}>
+              <p className="text-xs text-[var(--text-muted)] truncate" title={nodeTitle}>
                 {nodeTitle}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-200 transition-colors shrink-0"
+            className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded-lg hover:bg-[var(--bg-surface-hover)] transition-colors shrink-0 cursor-pointer"
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />
@@ -192,155 +252,161 @@ export const TopicResourcesModal: React.FC<TopicResourcesModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 flex flex-col gap-6 max-h-[70vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 flex flex-col gap-5 overflow-y-auto">
           {/* Add Resource Form */}
-          <form onSubmit={handleAddResource} className="bg-gray-50/80 p-4 rounded-lg border border-gray-200 space-y-3">
-            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
-              <Plus className="w-3.5 h-3.5 text-indigo-600" /> Add New Material / Lecture Bookmark
+          <form
+            onSubmit={handleAddResource}
+            className="bg-[var(--bg-surface-elevated)] p-4 rounded-xl border border-[var(--border-subtle)] space-y-3"
+          >
+            <h3 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5 text-indigo-500" /> Add New Material / Lecture Bookmark
             </h3>
 
             <div>
-              <label htmlFor="resource-title" className="block text-xs font-medium text-gray-600 mb-1">
-                Resource Title
+              <label
+                htmlFor="res-title-input"
+                className="block text-xs font-medium text-[var(--text-secondary)] mb-1"
+              >
+                Title / Description
               </label>
               <input
-                id="resource-title"
+                id="res-title-input"
                 type="text"
-                placeholder="e.g. MIT 6.006 Lecture Video, Coursera Notes"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                maxLength={200}
-                required
-                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="e.g. MIT 6.006 Lecture 4 — Dynamic Programming"
+                className="w-full px-3 py-1.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div className="sm:col-span-2">
-                <label htmlFor="resource-url" className="block text-xs font-medium text-gray-600 mb-1">
-                  URL (HTTP / HTTPS)
+                <label
+                  htmlFor="res-url-input"
+                  className="block text-xs font-medium text-[var(--text-secondary)] mb-1"
+                >
+                  Resource URL
                 </label>
                 <input
-                  id="resource-url"
+                  id="res-url-input"
                   type="url"
-                  placeholder="https://..."
                   value={url}
                   onChange={(e) => handleUrlChange(e.target.value)}
-                  maxLength={2048}
-                  required
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-xs"
+                  placeholder="https://youtube.com/watch?v=..."
+                  className="w-full px-3 py-1.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
                 />
               </div>
 
               <div>
-                <label htmlFor="resource-type" className="block text-xs font-medium text-gray-600 mb-1">
-                  Category
+                <label
+                  htmlFor="res-type-select"
+                  className="block text-xs font-medium text-[var(--text-secondary)] mb-1"
+                >
+                  Type
                 </label>
                 <select
-                  id="resource-type"
+                  id="res-type-select"
                   value={resourceType}
                   onChange={(e) => setResourceType(e.target.value as ResourceType)}
-                  className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-2.5 py-1.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
                 >
-                  <option value="link">Link</option>
-                  <option value="youtube">YouTube</option>
+                  <option value="link">Web Link</option>
+                  <option value="youtube">YouTube Video</option>
                   <option value="documentation">Documentation</option>
-                  <option value="slides">Slides</option>
-                  <option value="github">GitHub</option>
+                  <option value="github">GitHub Repo</option>
+                  <option value="slides">Slides / PDF</option>
                 </select>
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={adding || !title.trim() || !url.trim()}
-              className="w-full mt-2 py-1.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
-            >
-              {adding ? (
-                <>
-                  <Clock className="w-3.5 h-3.5 animate-spin" /> Adding...
-                </>
-              ) : (
-                <>
-                  <Plus className="w-3.5 h-3.5" /> Save Resource
-                </>
-              )}
-            </button>
+            <div className="flex justify-end pt-1">
+              <button
+                type="submit"
+                disabled={adding || !title.trim() || !url.trim()}
+                className="px-4 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{adding ? 'Saving...' : 'Add Resource'}</span>
+              </button>
+            </div>
           </form>
 
+          {/* Error Message */}
           {errorMessage && (
-            <div className="text-xs text-red-600 bg-red-50 p-2.5 rounded-md flex items-center gap-2 border border-red-200">
+            <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-xl text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
           )}
 
-          {/* Existing Resources List */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                Saved Resources ({resources.length})
-              </h3>
-            </div>
+          {/* Resources List */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">
+              Attached Learning Materials ({resources.length})
+            </h3>
 
             {loading ? (
-              <div className="text-center py-6 text-gray-400 text-sm flex items-center justify-center gap-2">
-                <Clock className="w-4 h-4 animate-spin" /> Loading bookmarks...
+              <div className="p-8 text-center text-[var(--text-muted)] text-xs">
+                Loading resources...
               </div>
             ) : resources.length === 0 ? (
-              <div className="text-center py-6 px-4 bg-gray-50 border border-dashed border-gray-200 rounded-lg text-gray-400 text-xs">
-                No resources saved yet. Add lecture links, repos, or reading documents above.
+              <div className="p-6 text-center text-[var(--text-muted)] text-xs border border-dashed border-[var(--border-subtle)] rounded-xl">
+                No external resources attached yet. Add lecture bookmarks, video links, or papers above.
               </div>
             ) : (
-              <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
-                {resources.map((res) => (
-                  <li
-                    key={res.id}
-                    className="p-3 hover:bg-gray-50/80 flex items-center justify-between gap-3 transition-colors bg-white"
+              <div className="divide-y divide-[var(--border-hairline)] border border-[var(--border-subtle)] rounded-xl overflow-hidden">
+                {resources.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] transition-colors flex items-center justify-between gap-3 group"
                   >
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <div className="mt-0.5 shrink-0">{renderResourceIcon(res.resource_type)}</div>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="p-2 bg-[var(--bg-surface-elevated)] rounded-lg shrink-0 border border-[var(--border-subtle)]">
+                        {renderResourceIcon(item.resource_type)}
+                      </div>
                       <div className="min-w-0">
                         <a
-                          href={res.url}
+                          href={item.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm font-medium text-gray-900 hover:text-indigo-600 truncate flex items-center gap-1 group"
+                          className="text-xs font-medium text-[var(--text-primary)] hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 truncate"
                         >
-                          <span className="truncate">{res.title}</span>
-                          <ExternalLink className="w-3 h-3 text-gray-400 group-hover:text-indigo-500 shrink-0" />
+                          <span className="truncate">{item.title}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
                         </a>
-                        <p className="text-[11px] text-gray-400 truncate max-w-sm">{res.url}</p>
+                        <p className="text-[11px] text-[var(--text-muted)] truncate max-w-xs sm:max-w-md font-mono">
+                          {item.url}
+                        </p>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                        {res.resource_type}
+                      <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
+                        {item.resource_type}
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleDelete(res.id)}
-                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        onClick={() => handleDelete(item.id)}
+                        className="p-1.5 text-[var(--text-muted)] hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
                         title="Delete resource"
-                        aria-label={`Delete resource ${res.title}`}
+                        aria-label={`Delete resource ${item.title}`}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-gray-200 bg-gray-50 flex justify-end">
+        <div className="px-5 sm:px-6 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-medium rounded-md transition-colors"
+            className="px-4 py-1.5 bg-[var(--bg-surface-hover)] hover:bg-[var(--bg-surface-active)] text-[var(--text-primary)] text-xs font-medium rounded-lg transition-colors border border-[var(--border-subtle)] cursor-pointer"
           >
             Close
           </button>

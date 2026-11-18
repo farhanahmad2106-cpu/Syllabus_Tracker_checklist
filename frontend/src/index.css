@@ -178,3 +178,41 @@
 .highlight-target {
   animation: nav-pulse 1.8s cubic-bezier(0, 0, 0.2, 1) 1;
 }
+
+/* Mobile & Touch Ergonomics: Safe-area insets */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Minimum 44x44px touch target area utility */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Zero horizontal overflow text protection */
+.break-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+

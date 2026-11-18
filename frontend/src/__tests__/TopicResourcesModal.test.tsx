@@ -3,11 +3,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TopicResourcesModal } from '../components/TopicResourcesModal';
 import * as api from '../lib/api';
+import * as offlineStore from '../lib/offlineStore';
 
 vi.mock('../lib/api', () => ({
   fetchSyllabusResources: vi.fn(),
   addTopicResource: vi.fn(),
   deleteTopicResource: vi.fn(),
+}));
+
+vi.mock('../lib/offlineStore', () => ({
+  enqueueMutation: vi.fn().mockResolvedValue({ id: 'mut_res_1' }),
+  getCachedSyllabus: vi.fn().mockResolvedValue(null),
 }));
 
 describe('TopicResourcesModal Component', () => {
@@ -163,6 +169,53 @@ describe('TopicResourcesModal Component', () => {
     await waitFor(() => {
       expect(api.deleteTopicResource).toHaveBeenCalledWith('syl_1', 10);
       expect(handleCountChange).toHaveBeenCalledWith('top_1', 0);
+    });
+  });
+
+  it('enqueues resource to offline outbox when adding resource while offline', async () => {
+    vi.mocked(api.fetchSyllabusResources).mockResolvedValue([]);
+    vi.mocked(api.addTopicResource).mockRejectedValue(new Error('Network offline'));
+
+    const handleCountChange = vi.fn();
+
+    render(
+      <TopicResourcesModal
+        isOpen={true}
+        onClose={vi.fn()}
+        syllabusId="syl_1"
+        nodeId="top_1"
+        nodeType="subtopic"
+        nodeTitle="Binary Trees"
+        onResourceCountChange={handleCountChange}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/MIT 6.006/i)).toBeInTheDocument();
+    });
+
+    const titleInput = screen.getByPlaceholderText(/MIT 6.006/i);
+    const urlInput = screen.getByPlaceholderText(/https:\/\/youtube.com/i);
+
+    fireEvent.change(titleInput, { target: { value: 'Offline Resource' } });
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/offline' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Add Resource/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(offlineStore.enqueueMutation).toHaveBeenCalledWith({
+        syllabusId: 'syl_1',
+        type: 'ADD_RESOURCE',
+        payload: {
+          node_id: 'top_1',
+          node_type: 'subtopic',
+          title: 'Offline Resource',
+          url: 'https://example.com/offline',
+          resource_type: 'link',
+        },
+      });
+      expect(handleCountChange).toHaveBeenCalledWith('top_1', 1);
     });
   });
 });

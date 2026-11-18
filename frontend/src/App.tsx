@@ -25,10 +25,12 @@ import { EmptyState } from './components/EmptyState';
 import { ErrorMessage } from './components/ErrorMessage';
 import { ExportMenu } from './components/ExportMenu';
 import { FileUpload } from './components/FileUpload';
+import { OfflineStatusBanner } from './components/OfflineStatusBanner';
 import { ProgressBar } from './components/ProgressBar';
 import { SyllabusTree } from './components/SyllabusTree';
 import { TopicNotesDrawer } from './components/TopicNotesDrawer';
 import { TopicResourcesModal } from './components/TopicResourcesModal';
+import { useOfflineSync } from './hooks/useOfflineSync';
 import { useSyllabus } from './hooks/useSyllabus';
 import { useTheme } from './hooks/useTheme';
 import { downloadExportMarkdown } from './lib/api';
@@ -77,6 +79,24 @@ export const App: React.FC = () => {
   } = useSyllabus();
 
   const { theme, resolvedTheme, setTheme } = useTheme();
+
+  const {
+    isOnline,
+    syncStatus,
+    pendingCount,
+    conflicts,
+    lastSyncError,
+    triggerSync,
+    resolveConflict,
+    dismissError: dismissSyncError,
+  } = useOfflineSync({
+    onSyncComplete: (syllabusIds) => {
+      refreshList();
+      if (activeSyllabus && syllabusIds.includes(activeSyllabus.syllabus.id)) {
+        selectSyllabus(activeSyllabus.syllabus.id);
+      }
+    },
+  });
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
@@ -321,6 +341,18 @@ export const App: React.FC = () => {
         </div>
       </header>
 
+      {/* Offline Status & Synchronization Banner */}
+      <OfflineStatusBanner
+        isOnline={isOnline}
+        syncStatus={syncStatus}
+        pendingCount={pendingCount}
+        conflicts={conflicts}
+        lastError={lastSyncError}
+        onRetry={triggerSync}
+        onDismissError={dismissSyncError}
+        onResolveConflict={resolveConflict}
+      />
+
       {/* Main Layout Area */}
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
         {/* Mobile Backdrop Overlay */}
@@ -561,8 +593,8 @@ export const App: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* Mobile responsive: compact action buttons */}
-                    <div className="flex sm:hidden items-center gap-2 w-full justify-between pt-1">
+                    {/* Mobile responsive: compact action buttons with accessible touch targets */}
+                    <div className="flex sm:hidden items-center gap-2 w-full justify-between pt-1 flex-wrap">
                       <ExportMenu
                         syllabusId={activeSyllabus.syllabus.id}
                         syllabusTitle={activeSyllabus.syllabus.title}
@@ -574,22 +606,22 @@ export const App: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => openElectiveModal(activeSyllabus.syllabus.id)}
-                        className="p-2 text-indigo-500 hover:bg-indigo-500/10 border border-indigo-500/30 rounded-xl transition-colors flex items-center gap-1 text-xs"
+                        className="min-h-[44px] px-3 py-2 text-indigo-500 hover:bg-indigo-500/10 border border-indigo-500/30 rounded-xl transition-colors flex items-center gap-1.5 text-xs cursor-pointer"
                         title="Configure Electives"
                         aria-label="Configure Electives"
                       >
                         <GraduationCap className="w-4 h-4" />
-                        <span className="text-[11px]">Electives</span>
+                        <span className="text-[11px] font-medium">Electives</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setDeletingId(activeSyllabus.syllabus.id)}
-                        className="p-2 text-red-500 hover:bg-red-500/10 border border-red-500/30 rounded-xl transition-colors flex items-center gap-1 text-xs"
+                        className="min-h-[44px] px-3 py-2 text-red-500 hover:bg-red-500/10 border border-red-500/30 rounded-xl transition-colors flex items-center gap-1.5 text-xs cursor-pointer"
                         title="Delete Document"
                         aria-label="Delete Document"
                       >
                         <Trash2 className="w-4 h-4" />
-                        <span className="text-[11px]">Delete</span>
+                        <span className="text-[11px] font-medium">Delete</span>
                       </button>
                     </div>
                   </div>

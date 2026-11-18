@@ -243,4 +243,17 @@ describe('App Component Layout, Sidebar Deduplication, and Drawer Interactions',
 
     expect(mockHandleDelete).toHaveBeenCalledWith('syl_1');
   });
+
+  it('renders mobile-adapted document action buttons with accessible touch targets', () => {
+    render(<App />);
+
+    // Mobile action buttons
+    const mobileElectiveBtn = screen.getByRole('button', { name: 'Configure Electives' });
+    expect(mobileElectiveBtn).toBeInTheDocument();
+    expect(mobileElectiveBtn.className).toContain('min-h-[44px]');
+
+    const mobileDeleteBtn = screen.getByRole('button', { name: 'Delete Document' });
+    expect(mobileDeleteBtn).toBeInTheDocument();
+    expect(mobileDeleteBtn.className).toContain('min-h-[44px]');
+  });
 });
