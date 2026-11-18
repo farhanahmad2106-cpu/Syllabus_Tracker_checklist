@@ -125,9 +125,9 @@ export const TopicNotesDrawer: React.FC<TopicNotesDrawerProps> = ({
           setSaveStatus('saved');
           onNoteChange?.(leafId, textToSave.trim().length > 0);
         } catch (storageErr) {
-          console.error('Failed to auto-save note:', err);
+          console.error('Failed to auto-save note to offline storage:', storageErr);
           setSaveStatus('error');
-          setErrorMessage(err instanceof Error ? err.message : 'Failed to save note');
+          setErrorMessage(storageErr instanceof Error ? storageErr.message : 'Failed to save note');
         }
       }
     },

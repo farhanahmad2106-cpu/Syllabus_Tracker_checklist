@@ -561,10 +561,12 @@ describe('SyllabusTree', () => {
                     id: 'subj_flagged',
                     title: 'Flagged Subject',
                     is_enrolled: true,
+                    evidence_status: 'needs_review',
                     modules: [
                       {
                         id: 'mod_flagged',
                         title: 'Flagged Module',
+                        evidence_status: 'needs_review',
                         topics: [
                           {
                             id: 'top_flagged',

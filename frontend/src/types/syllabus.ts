@@ -28,6 +28,8 @@ export interface Module {
   contact_hours?: number | null;
   topics: Subtopic[];
   order_index?: number;
+  evidence_status?: GroundingStatus;
+  grounding_status?: GroundingStatus;
 }
 
 export interface Subject {
@@ -41,6 +43,8 @@ export interface Subject {
   enrollment_status?: EnrollmentStatus;
   modules: Module[];
   order_index?: number;
+  evidence_status?: GroundingStatus;
+  grounding_status?: GroundingStatus;
 }
 
 export interface Topic {
