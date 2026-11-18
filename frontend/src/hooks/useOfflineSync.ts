@@ -14,6 +14,7 @@ import {
   renameSyllabus,
   saveTopicNote,
   setNodeDeadline,
+  submitRevisionReview,
   toggleBranch,
   toggleLeaf,
 } from '../lib/api';
@@ -175,6 +176,18 @@ export function useOfflineSync(options?: UseOfflineSyncOptions) {
 
             case 'RENAME_SYLLABUS':
               await renameSyllabus(mutation.syllabusId, mutation.payload.title);
+              break;
+
+            case 'SUBMIT_REVISION_REVIEW':
+              await submitRevisionReview(
+                mutation.syllabusId,
+                mutation.payload.leafId,
+                {
+                  quality: mutation.payload.quality,
+                  idempotency_key: mutation.id,
+                  client_review_date: mutation.payload.clientReviewDate,
+                }
+              );
               break;
 
             default:

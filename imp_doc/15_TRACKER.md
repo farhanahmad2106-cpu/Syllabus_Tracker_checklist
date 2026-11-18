@@ -1593,24 +1593,24 @@ These systems must share stable academic topic identifiers but must maintain sep
 
 ### Engineering Checklist
 
-- [ ] `[PLANNED]` **P12-001**: Define analytics domain model.
-- [ ] `[PLANNED]` **P12-002**: Define historical completion-event schema.
-- [ ] `[PLANNED]` **P12-003**: Record leaf completion timestamps.
-- [ ] `[PLANNED]` **P12-004**: Record leaf uncompletion events.
-- [ ] `[PLANNED]` **P12-005**: Preserve event history after progress changes.
-- [ ] `[PLANNED]` **P12-006**: Define daily aggregation.
-- [ ] `[PLANNED]` **P12-007**: Define weekly aggregation.
-- [ ] `[PLANNED]` **P12-008**: Define monthly aggregation.
-- [ ] `[PLANNED]` **P12-009**: Implement subject-level analytics.
-- [ ] `[PLANNED]` **P12-010**: Implement semester-level analytics.
-- [ ] `[PLANNED]` **P12-011**: Implement topic completion trends.
-- [ ] `[PLANNED]` **P12-012**: Implement study consistency metrics.
-- [ ] `[PLANNED]` **P12-013**: Implement deadline readiness calculations.
-- [ ] `[PLANNED]` **P12-014**: Implement at-risk subject identification.
-- [ ] `[PLANNED]` **P12-015**: Define analytics treatment for excluded electives.
-- [ ] `[PLANNED]` **P12-016**: Define analytics treatment for archived topics.
-- [ ] `[PLANNED]` **P12-017**: Implement historical analytics export.
-- [ ] `[PLANNED]` **P12-018**: Verify analytics survive backup and restore.
+- [x] `[COMPLETED]` **P12-001**: Define analytics domain model.
+- [x] `[COMPLETED]` **P12-002**: Define historical completion-event schema.
+- [x] `[COMPLETED]` **P12-003**: Record leaf completion timestamps.
+- [x] `[COMPLETED]` **P12-004**: Record leaf uncompletion events.
+- [x] `[COMPLETED]` **P12-005**: Preserve event history after progress changes.
+- [x] `[COMPLETED]` **P12-006**: Define daily aggregation.
+- [x] `[COMPLETED]` **P12-007**: Define weekly aggregation.
+- [x] `[COMPLETED]` **P12-008**: Define monthly aggregation.
+- [x] `[COMPLETED]` **P12-009**: Implement subject-level analytics.
+- [x] `[COMPLETED]` **P12-010**: Implement semester-level analytics.
+- [x] `[COMPLETED]` **P12-011**: Implement topic completion trends.
+- [x] `[COMPLETED]` **P12-012**: Implement study consistency metrics.
+- [x] `[COMPLETED]` **P12-013**: Implement deadline readiness calculations.
+- [x] `[COMPLETED]` **P12-014**: Implement at-risk subject identification.
+- [x] `[COMPLETED]` **P12-015**: Define analytics treatment for excluded electives.
+- [x] `[COMPLETED]` **P12-016**: Define analytics treatment for archived topics.
+- [x] `[COMPLETED]` **P12-017**: Implement historical analytics export.
+- [x] `[COMPLETED]` **P12-018**: Verify analytics survive backup and restore.
 Historical Data Integrity
 The application must not invent past completion events.
 For existing databases that contain only current leaf completion states:
@@ -1677,22 +1677,22 @@ The algorithm must be formally selected before implementation.
 
 ### Engineering Checklist
 
-- [ ] `[PLANNED]` **P12-019**: Define scheduler requirements.
-- [ ] `[PLANNED]` **P12-020**: Evaluate SM-2.
-- [ ] `[PLANNED]` **P12-021**: Evaluate a configurable interval-based alternative.
-- [ ] `[PLANNED]` **P12-022**: Select and document the scheduling algorithm.
-- [ ] `[PLANNED]` **P12-023**: Define initial review intervals.
-- [ ] `[PLANNED]` **P12-024**: Define recall-quality input.
-- [ ] `[PLANNED]` **P12-025**: Define difficulty tracking.
-- [ ] `[PLANNED]` **P12-026**: Implement review scheduling.
-- [ ] `[PLANNED]` **P12-027**: Persist review history.
-- [ ] `[PLANNED]` **P12-028**: Implement interval adjustment.
-- [ ] `[PLANNED]` **P12-029**: Detect overdue reviews.
-- [ ] `[PLANNED]` **P12-030**: Implement daily review queue.
-- [ ] `[PLANNED]` **P12-031**: Implement weekly review planning.
-- [ ] `[PLANNED]` **P12-032**: Support manual rescheduling.
-- [ ] `[PLANNED]` **P12-033**: Verify scheduling determinism.
-- [ ] `[PLANNED]` **P12-034**: Verify review history persistence.
+- [x] `[COMPLETED]` **P12-019**: Define scheduler requirements.
+- [x] `[COMPLETED]` **P12-020**: Evaluate SM-2.
+- [x] `[COMPLETED]` **P12-021**: Evaluate a configurable interval-based alternative.
+- [x] `[COMPLETED]` **P12-022**: Select and document the scheduling algorithm (SM-2-v1).
+- [x] `[COMPLETED]` **P12-023**: Define initial review intervals.
+- [x] `[COMPLETED]` **P12-024**: Define recall-quality input (ratings 1-4).
+- [x] `[COMPLETED]` **P12-025**: Define difficulty tracking (ease factor >= 1.3).
+- [x] `[COMPLETED]` **P12-026**: Implement review scheduling.
+- [x] `[COMPLETED]` **P12-027**: Persist review history.
+- [x] `[COMPLETED]` **P12-028**: Implement interval adjustment.
+- [x] `[COMPLETED]` **P12-029**: Detect overdue reviews.
+- [x] `[COMPLETED]` **P12-030**: Implement daily review queue.
+- [x] `[COMPLETED]` **P12-031**: Implement weekly review planning.
+- [x] `[COMPLETED]` **P12-032**: Support manual rescheduling.
+- [x] `[COMPLETED]` **P12-033**: Verify scheduling determinism.
+- [x] `[COMPLETED]` **P12-034**: Verify review history persistence.
 
 ### Proposed Review Record
 
@@ -1714,28 +1714,28 @@ The exact schema is subject to the selected scheduling algorithm.
 
 ## 9.4 Study Workflow Integration
 
-- [ ] `[PLANNED]` **P12-035**: Integrate review scheduling with the existing topic hierarchy.
-- [ ] `[PLANNED]` **P12-036**: Provide notes access from review sessions.
-[PLANNED] Provide resource access from review sessions.
-[PLANNED] Build review progress dashboard.
-[PLANNED] Integrate deadline-aware review prioritization.
-[PLANNED] Respect elective enrollment.
-[PLANNED] Define completed-topic review behavior.
-[PLANNED] Support manual review scheduling.
-[PLANNED] Ensure review completion does not modify academic completion records.
-[PLANNED] Ensure revision activity is distinguishable from new-topic completion.
+- [x] `[COMPLETED]` **P12-035**: Integrate review scheduling with the existing topic hierarchy.
+- [x] `[COMPLETED]` **P12-036**: Provide notes access from review sessions.
+- [x] `[COMPLETED]` Provide resource access from review sessions.
+- [x] `[COMPLETED]` Build review progress dashboard.
+- [x] `[COMPLETED]` Integrate deadline-aware review prioritization.
+- [x] `[COMPLETED]` Respect elective enrollment.
+- [x] `[COMPLETED]` Define completed-topic review behavior.
+- [x] `[COMPLETED]` Support manual review scheduling.
+- [x] `[COMPLETED]` Ensure review completion does not modify academic completion records.
+- [x] `[COMPLETED]` Ensure revision activity is distinguishable from new-topic completion.
 
 ## 9.5 Data Integrity and Compatibility
 
-- [ ] `[PLANNED]` **P12-036**: Preserve existing completion records.
-- [ ] `[PLANNED]` **P12-037**: Add backward-compatible event migration.
-- [ ] `[PLANNED]` **P12-038**: Persist review history.
-- [ ] `[PLANNED]` **P12-039**: Support review-history export.
-- [ ] `[PLANNED]` **P12-040**: Support review-history restoration.
-- [ ] `[PLANNED]` **P12-041**: Handle deleted topics.
-- [ ] `[PLANNED]` **P12-042**: Handle archived topics.
-- [ ] `[PLANNED]` **P12-043**: Handle changed syllabus structures.
-- [ ] `[PLANNED]` **P12-044**: Verify analytics and scheduler migrations are non-destructive.
+- [x] `[COMPLETED]` **P12-036**: Preserve existing completion records.
+- [x] `[COMPLETED]` **P12-037**: Add backward-compatible event migration.
+- [x] `[COMPLETED]` **P12-038**: Persist review history.
+- [x] `[COMPLETED]` **P12-039**: Support review-history export.
+- [x] `[COMPLETED]` **P12-040**: Support review-history restoration.
+- [x] `[COMPLETED]` **P12-041**: Handle deleted topics.
+- [x] `[COMPLETED]` **P12-042**: Handle archived topics.
+- [x] `[COMPLETED]` **P12-043**: Handle changed syllabus structures.
+- [x] `[COMPLETED]` **P12-044**: Verify analytics and scheduler migrations are non-destructive.
 
 ## 9.6 Phase 12 Acceptance Criteria
 

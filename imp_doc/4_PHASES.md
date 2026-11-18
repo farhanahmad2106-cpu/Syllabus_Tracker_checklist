@@ -85,7 +85,7 @@ The following matrix distinguishes the original implementation sequence, indepen
 | Option-C | NEEDS VERIFICATION | Secure university portal ingestion | SSRF protection, URL extraction, provenance | Connection-time security audit |
 | Phase 10 | PLANNED | Extraction sanitization and UI modernization | Artifact classification, improved academic workspace | Extraction regression and UI acceptance |
 | Phase 11 | PLANNED | Responsive application, PWA and native packaging | Offline outbox, PWA, Capacitor | Device, offline and synchronization acceptance |
-| Phase 12 | PLANNED | Study analytics and spaced repetition | Analytics, review scheduling, reminders | Data integrity and scheduling acceptance |
+| Phase 12 | COMPLETED | Study analytics and spaced repetition | Analytics, review scheduling, reminders | Data integrity and scheduling acceptance |
 
 **Status note:** The repository README confirms the five-tier architecture, elective workflow, grounding and core extraction capabilities. `Master_Context.md` records Phases 1–9 as completed. The current repository snapshot has not been independently built or tested during preparation of this document.
 
@@ -1953,7 +1953,15 @@ Phase 11 is complete only when:
 
 # 8. PHASE 12 — STUDY ANALYTICS AND SPACED-REPETITION REVISION SCHEDULER
 
-<Status>PLANNED</Status>
+<Status>COMPLETED</Status>
+
+### Implementation Verification Summary (Phase 12)
+- **Historical Event Log**: Implemented `completion_events` table (immutable audit log with action, recorded_at, idempotency_key, and event_source).
+- **Spaced-Repetition Engine**: Implemented `revision_schedules` and `revision_events` tables using versioned deterministic algorithm `sm2-v1` with ratings 1-4, ease-factor floor 1.3, and automatic schedule suspension/reactivation.
+- **Study Analytics Service**: Aggregates 14-day completion velocity, streak metrics (current streak, longest streak, active today), enrolled subject coverage, revision queue summary, and exam risk pacing.
+- **REST APIs**: `GET /api/syllabus/{id}/analytics`, `GET /api/syllabus/{id}/revisions/due`, `POST /api/syllabus/{id}/revisions/{leaf_id}/review`.
+- **Frontend Workspace**: Segmented switcher between Curriculum Tree and Analytics & Revision, KPI cards, native SVG 14-day study activity chart with tooltips, interactive revision queue with 4 rating buttons (>=44px touch targets), notes/resources quick view, and exam risk panel.
+- **Offline Resilience**: Enqueues review mutations (`SUBMIT_REVISION_REVIEW`) and replays upon reconnection; caches analytics snapshots.
 
 ## 8.1 Objective
 

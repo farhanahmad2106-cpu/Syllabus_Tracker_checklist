@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
+  BarChart2,
   BookOpen,
   Cpu,
   Edit2,
@@ -18,6 +19,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { CommandPalette } from './components/CommandPalette';
 import { ConfirmDelete } from './components/ConfirmDelete';
 import { ElectiveOnboardingModal } from './components/ElectiveOnboardingModal';
@@ -107,6 +109,7 @@ export const App: React.FC = () => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
   const [targetNavNodeId, setTargetNavNodeId] = useState<string | null>(null);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'tree' | 'analytics'>('tree');
 
   const isMac = useMemo(() => {
     return typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
@@ -650,24 +653,70 @@ export const App: React.FC = () => {
                 )}
               </div>
 
-              {/* 5-Level Syllabus Hierarchy Tree */}
-              <SyllabusTree
-                syllabus={activeSyllabus.syllabus}
-                completedLeafIds={activeSyllabus.completed_leaf_ids}
-                nodeProgress={activeSyllabus.node_progress}
-                pacingData={pacingData}
-                onSetDeadline={handleSetDeadline}
-                onClearDeadline={handleClearDeadline}
-                onToggleLeaf={handleToggleLeaf}
-                onToggleBranch={handleToggleBranch}
-                isMutating={isMutating}
-                noteLeafIds={noteLeafIds}
-                resourceCounts={resourceCounts}
-                onOpenNote={openNoteDrawer}
-                onOpenResource={openResourceModal}
-                targetNodeId={targetNavNodeId}
-                onTargetNodeNavigated={() => setTargetNavNodeId(null)}
-              />
+              {/* Workspace Switcher: Curriculum Tree vs. Analytics & Revision */}
+              <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2 pt-1 gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)]">
+                  <button
+                    type="button"
+                    data-testid="workspace-tab-tree"
+                    onClick={() => setActiveWorkspaceTab('tree')}
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                      activeWorkspaceTab === 'tree'
+                        ? 'bg-[var(--bg-surface)] text-emerald-500 shadow-xs border border-[var(--border-subtle)]'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Curriculum Tree</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="workspace-tab-analytics"
+                    onClick={() => setActiveWorkspaceTab('analytics')}
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                      activeWorkspaceTab === 'analytics'
+                        ? 'bg-[var(--bg-surface)] text-indigo-500 shadow-xs border border-[var(--border-subtle)]'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <BarChart2 className="w-3.5 h-3.5" />
+                    <span>Analytics & Revision</span>
+                  </button>
+                </div>
+              </div>
+
+              {activeWorkspaceTab === 'tree' ? (
+                /* 5-Level Syllabus Hierarchy Tree */
+                <SyllabusTree
+                  syllabus={activeSyllabus.syllabus}
+                  completedLeafIds={activeSyllabus.completed_leaf_ids}
+                  nodeProgress={activeSyllabus.node_progress}
+                  pacingData={pacingData}
+                  onSetDeadline={handleSetDeadline}
+                  onClearDeadline={handleClearDeadline}
+                  onToggleLeaf={handleToggleLeaf}
+                  onToggleBranch={handleToggleBranch}
+                  isMutating={isMutating}
+                  noteLeafIds={noteLeafIds}
+                  resourceCounts={resourceCounts}
+                  onOpenNote={openNoteDrawer}
+                  onOpenResource={openResourceModal}
+                  targetNodeId={targetNavNodeId}
+                  onTargetNodeNavigated={() => setTargetNavNodeId(null)}
+                />
+              ) : (
+                <AnalyticsDashboard
+                  syllabusId={activeSyllabus.syllabus.id}
+                  syllabusTitle={activeSyllabus.syllabus.title}
+                  completedLeafIds={activeSyllabus.completed_leaf_ids}
+                  onOpenNoteDrawer={openNoteDrawer}
+                  onOpenResourceModal={openResourceModal}
+                  isOnline={isOnline}
+                  onReviewCompleted={() => {
+                    refreshList();
+                  }}
+                />
+              )}
             </div>
           ) : (
             <EmptyState

@@ -26,7 +26,8 @@ export type MutationType =
   | 'DELETE_RESOURCE'
   | 'SET_DEADLINE'
   | 'CLEAR_DEADLINE'
-  | 'RENAME_SYLLABUS';
+  | 'RENAME_SYLLABUS'
+  | 'SUBMIT_REVISION_REVIEW';
 
 export interface CachedSyllabusRecord {
   id: string; // syllabus ID

@@ -339,5 +339,116 @@ export interface IngestUrlPayload {
   preview_token?: string | null;
 }
 
+// --- Phase 12: Study Analytics & Spaced Repetition Types ---
+
+export interface CompletionVelocityDay {
+  date: string;
+  completed_count: number;
+  uncompleted_count: number;
+  net_change: number;
+  cumulative_completed: number;
+}
+
+export interface StreakMetrics {
+  current_streak: number;
+  longest_streak: number;
+  last_activity_date: string | null;
+  is_active_today: boolean;
+}
+
+export interface SubjectCoverageItem {
+  subject_id: string;
+  subject_code: string;
+  subject_title: string;
+  is_lab: boolean;
+  total_leaves: number;
+  completed_leaves: number;
+  completion_percentage: number;
+}
+
+export interface RevisionQueueMetrics {
+  due_today_count: number;
+  overdue_count: number;
+  upcoming_7d_count: number;
+  mastered_count: number;
+  total_scheduled: number;
+}
+
+export interface ExamRiskItem {
+  node_id: string;
+  node_type: string;
+  title: string;
+  target_date: string;
+  days_remaining: number;
+  total_leaves: number;
+  completed_leaves: number;
+  incomplete_leaves: number;
+  completion_percentage: number;
+  required_velocity_per_day: number;
+  current_velocity_per_day: number;
+  risk_level: 'Low' | 'Moderate' | 'High' | 'Critical';
+  risk_reason: string;
+}
+
+export interface SyllabusAnalytics {
+  syllabus_id: string;
+  overall_completion_percentage: number;
+  total_eligible_leaves: number;
+  completed_eligible_leaves: number;
+  remaining_eligible_leaves: number;
+  streak: StreakMetrics;
+  velocity_14d: CompletionVelocityDay[];
+  subject_coverage: SubjectCoverageItem[];
+  revision_queue: RevisionQueueMetrics;
+  exam_risks: ExamRiskItem[];
+}
+
+export interface DueRevisionItem {
+  schedule_id: number;
+  leaf_id: string;
+  leaf_title: string;
+  module_id: string;
+  module_title: string;
+  subject_id: string;
+  subject_code: string;
+  subject_title: string;
+  semester_id: string;
+  semester_title: string;
+  due_date: string;
+  days_overdue: number;
+  is_overdue: boolean;
+  repetition_count: number;
+  interval_days: number;
+  ease_factor: number;
+  last_reviewed_at: string | null;
+  has_notes: boolean;
+  resource_count: number;
+}
+
+export interface DueRevisionsResponse {
+  syllabus_id: string;
+  total_due: number;
+  items: DueRevisionItem[];
+}
+
+export interface ReviewRatingRequest {
+  quality: 1 | 2 | 3 | 4;
+  idempotency_key?: string;
+  client_review_date?: string;
+}
+
+export interface ReviewRatingResponse {
+  schedule_id: number;
+  syllabus_id: string;
+  leaf_id: string;
+  repetition_count: number;
+  interval_days: number;
+  ease_factor: number;
+  next_review_date: string;
+  quality: number;
+  reviewed_at: string;
+}
+
+
 
 

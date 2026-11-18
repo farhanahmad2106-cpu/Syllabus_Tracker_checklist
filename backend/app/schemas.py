@@ -344,6 +344,7 @@ class LeafToggleRequest(BaseModel):
     leaf_id: str = Field(..., min_length=1)
     is_completed: Optional[bool] = None
     completed: Optional[bool] = None
+    idempotency_key: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -381,6 +382,7 @@ class BulkToggleRequest(BaseModel):
     leaf_ids: Optional[List[str]] = None
     is_completed: Optional[bool] = None
     completed: Optional[bool] = None
+    idempotency_key: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -759,4 +761,145 @@ class IngestUrlRequest(BaseModel):
         return s
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+# --- Phase 12 Study Analytics & Spaced-Repetition Schemas ---
+
+class CompletionVelocityDay(BaseModel):
+    """Daily completion velocity metrics for a single date."""
+    model_config = ConfigDict(strict=False)
+
+    date: str = Field(description="ISO date string (YYYY-MM-DD)")
+    completed_count: int = 0
+    uncompleted_count: int = 0
+    net_change: int = 0
+    cumulative_completed: int = 0
+
+
+class StreakMetrics(BaseModel):
+    """Consecutive active study days calculated from completion events."""
+    model_config = ConfigDict(strict=False)
+
+    current_streak: int = 0
+    longest_streak: int = 0
+    last_activity_date: Optional[str] = None
+    is_active_today: bool = False
+
+
+class SubjectCoverageItem(BaseModel):
+    """Coverage and completion statistics for an enrolled subject."""
+    model_config = ConfigDict(strict=False)
+
+    subject_id: str
+    subject_code: str
+    subject_title: str
+    is_lab: bool = False
+    total_leaves: int = 0
+    completed_leaves: int = 0
+    completion_percentage: float = 0.0
+
+
+class RevisionQueueMetrics(BaseModel):
+    """Aggregate counts for the spaced-repetition revision queue."""
+    model_config = ConfigDict(strict=False)
+
+    due_today_count: int = 0
+    overdue_count: int = 0
+    upcoming_7d_count: int = 0
+    mastered_count: int = 0
+    total_scheduled: int = 0
+
+
+class ExamRiskItem(BaseModel):
+    """Pacing risk evaluation for subjects or semesters with target deadlines."""
+    model_config = ConfigDict(strict=False)
+
+    node_id: str
+    node_type: str
+    title: str
+    target_date: str
+    days_remaining: int
+    total_leaves: int
+    completed_leaves: int
+    incomplete_leaves: int
+    completion_percentage: float
+    required_velocity_per_day: float
+    current_velocity_per_day: float
+    risk_level: str  # "Low", "Moderate", "High", "Critical"
+    risk_reason: str
+
+
+class SyllabusAnalyticsResponse(BaseModel):
+    """Complete analytics payload for the Analytics & Revision workspace."""
+    model_config = ConfigDict(strict=False)
+
+    syllabus_id: str
+    overall_completion_percentage: float
+    total_eligible_leaves: int
+    completed_eligible_leaves: int
+    remaining_eligible_leaves: int
+    streak: StreakMetrics
+    velocity_14d: List[CompletionVelocityDay]
+    subject_coverage: List[SubjectCoverageItem]
+    revision_queue: RevisionQueueMetrics
+    exam_risks: List[ExamRiskItem]
+
+
+class DueRevisionItem(BaseModel):
+    """A single subtopic leaf due or upcoming for spaced-repetition review."""
+    model_config = ConfigDict(strict=False)
+
+    schedule_id: int
+    leaf_id: str
+    leaf_title: str
+    module_id: str
+    module_title: str
+    subject_id: str
+    subject_code: str
+    subject_title: str
+    semester_id: str
+    semester_title: str
+    due_date: str  # YYYY-MM-DD
+    days_overdue: int
+    is_overdue: bool
+    repetition_count: int
+    interval_days: int
+    ease_factor: float
+    last_reviewed_at: Optional[str] = None
+    has_notes: bool = False
+    resource_count: int = 0
+
+
+class DueRevisionsResponse(BaseModel):
+    """Paginated or bounded list of due revision items."""
+    model_config = ConfigDict(strict=False)
+
+    syllabus_id: str
+    total_due: int
+    items: List[DueRevisionItem]
+
+
+class ReviewRatingRequest(BaseModel):
+    """Payload to record a recall quality rating for a topic revision."""
+    model_config = ConfigDict(strict=False)
+
+    quality: int = Field(..., ge=1, le=4, description="1: Again, 2: Hard, 3: Good, 4: Easy")
+    idempotency_key: Optional[str] = None
+    client_review_date: Optional[str] = None
+
+
+class ReviewRatingResponse(BaseModel):
+    """Response returned upon recording a revision review."""
+    model_config = ConfigDict(strict=False)
+
+    schedule_id: int
+    syllabus_id: str
+    leaf_id: str
+    repetition_count: int
+    interval_days: int
+    ease_factor: float
+    next_review_date: str
+    quality: int
+    reviewed_at: str
+
 

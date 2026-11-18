@@ -7,14 +7,18 @@ import type {
   AppConfigResponse,
   BackupRestorePayload,
   BackupRestoreResult,
+  DueRevisionsResponse,
   ExportOptions,
   HealthResponse,
   IngestUrlPayload,
   PacingMetrics,
   ParseReviewResponse,
+  ReviewRatingRequest,
+  ReviewRatingResponse,
   ScrapePreview,
   SetTargetDatePayload,
   StartUploadResponse,
+  SyllabusAnalytics,
   SyllabusPacingSummary,
   SyllabusResponse,
   SyllabusSummary,
@@ -301,6 +305,64 @@ export async function uploadSyllabusFile(
     });
   });
 }
+
+/**
+ * Retrieve aggregated study analytics, 14-day completion velocity, streak metrics, and exam risks.
+ */
+export async function fetchSyllabusAnalytics(
+  syllabusId: string,
+  referenceDate?: string
+): Promise<SyllabusAnalytics> {
+  const url = new URL(`${API_BASE}/syllabus/${syllabusId}/analytics`);
+  if (referenceDate) {
+    url.searchParams.set('reference_date', referenceDate);
+  }
+  const response = await fetch(url.toString());
+  return handleResponse<SyllabusAnalytics>(response);
+}
+
+/**
+ * Retrieve subtopics currently due or upcoming for spaced-repetition review.
+ */
+export async function fetchDueRevisions(
+  syllabusId: string,
+  includeUpcoming = false,
+  limit = 50,
+  referenceDate?: string
+): Promise<DueRevisionsResponse> {
+  const url = new URL(`${API_BASE}/syllabus/${syllabusId}/revisions/due`);
+  if (includeUpcoming) {
+    url.searchParams.set('include_upcoming', 'true');
+  }
+  url.searchParams.set('limit', String(limit));
+  if (referenceDate) {
+    url.searchParams.set('reference_date', referenceDate);
+  }
+  const response = await fetch(url.toString());
+  return handleResponse<DueRevisionsResponse>(response);
+}
+
+/**
+ * Submit a recall quality rating (1-4) for a spaced-repetition topic revision.
+ */
+export async function submitRevisionReview(
+  syllabusId: string,
+  leafId: string,
+  payload: ReviewRatingRequest
+): Promise<ReviewRatingResponse> {
+  const response = await fetch(
+    `${API_BASE}/syllabus/${syllabusId}/revisions/${encodeURIComponent(leafId)}/review`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  return handleResponse<ReviewRatingResponse>(response);
+}
+
 
 export async function toggleLeaf(
   syllabusId: string,
@@ -706,6 +768,64 @@ export async function ingestSyllabusUrl(
     });
   });
 }
+
+/**
+ * Retrieve aggregated study analytics, 14-day completion velocity, streak metrics, and exam risks.
+ */
+export async function fetchSyllabusAnalytics(
+  syllabusId: string,
+  referenceDate?: string
+): Promise<SyllabusAnalytics> {
+  const url = new URL(`${API_BASE}/syllabus/${syllabusId}/analytics`);
+  if (referenceDate) {
+    url.searchParams.set('reference_date', referenceDate);
+  }
+  const response = await fetch(url.toString());
+  return handleResponse<SyllabusAnalytics>(response);
+}
+
+/**
+ * Retrieve subtopics currently due or upcoming for spaced-repetition review.
+ */
+export async function fetchDueRevisions(
+  syllabusId: string,
+  includeUpcoming = false,
+  limit = 50,
+  referenceDate?: string
+): Promise<DueRevisionsResponse> {
+  const url = new URL(`${API_BASE}/syllabus/${syllabusId}/revisions/due`);
+  if (includeUpcoming) {
+    url.searchParams.set('include_upcoming', 'true');
+  }
+  url.searchParams.set('limit', String(limit));
+  if (referenceDate) {
+    url.searchParams.set('reference_date', referenceDate);
+  }
+  const response = await fetch(url.toString());
+  return handleResponse<DueRevisionsResponse>(response);
+}
+
+/**
+ * Submit a recall quality rating (1-4) for a spaced-repetition topic revision.
+ */
+export async function submitRevisionReview(
+  syllabusId: string,
+  leafId: string,
+  payload: ReviewRatingRequest
+): Promise<ReviewRatingResponse> {
+  const response = await fetch(
+    `${API_BASE}/syllabus/${syllabusId}/revisions/${encodeURIComponent(leafId)}/review`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  return handleResponse<ReviewRatingResponse>(response);
+}
+
 
 
 

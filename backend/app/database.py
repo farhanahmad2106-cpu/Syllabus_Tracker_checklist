@@ -3,7 +3,7 @@
 import json
 import os
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Generator, List, Optional, Set, Tuple
 
 from sqlalchemy import create_engine, event, select, delete, text
@@ -18,7 +18,17 @@ from backend.app.exceptions import (
     InvalidNodeError,
     SyllabusNotFoundError,
 )
-from backend.app.models import Base, LeafCompletionRecord, SyllabusRecord, TargetDeadline, TopicNote, TopicResource
+from backend.app.models import (
+    Base,
+    CompletionEvent,
+    LeafCompletionRecord,
+    RevisionEvent,
+    RevisionSchedule,
+    SyllabusRecord,
+    TargetDeadline,
+    TopicNote,
+    TopicResource,
+)
 from backend.app.schemas import (
     HierarchicalSyllabus,
     ParseReviewResponse,
@@ -106,6 +116,24 @@ def init_db(db_engine: Optional[Engine] = None) -> None:
             res_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='topic_resources'"))
             if not res_check.fetchone():
                 TopicResource.__table__.create(bind=conn, checkfirst=True)
+                conn.commit()
+
+            # Ensure completion_events table is created if running against existing database
+            ce_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='completion_events'"))
+            if not ce_check.fetchone():
+                CompletionEvent.__table__.create(bind=conn, checkfirst=True)
+                conn.commit()
+
+            # Ensure revision_schedules table is created if running against existing database
+            rs_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='revision_schedules'"))
+            if not rs_check.fetchone():
+                RevisionSchedule.__table__.create(bind=conn, checkfirst=True)
+                conn.commit()
+
+            # Ensure revision_events table is created if running against existing database
+            re_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='revision_events'"))
+            if not re_check.fetchone():
+                RevisionEvent.__table__.create(bind=conn, checkfirst=True)
                 conn.commit()
     except Exception:
         pass
@@ -256,35 +284,98 @@ def update_leaf_completion(
     syllabus: HierarchicalSyllabus,
     leaf_id: str,
     is_completed: bool,
+    event_source: str = "user_toggle",
+    idempotency_key: Optional[str] = None,
 ) -> Set[str]:
-    """Atomically and idempotently set completion state for a single leaf."""
+    """Atomically and idempotently set completion state for a single leaf, logging historical events and updating revision schedules."""
     valid_leaves = set(get_all_leaf_ids(syllabus))
     if leaf_id not in valid_leaves:
         raise InvalidLeafError(leaf_id=leaf_id)
 
-    if is_completed:
-        # Idempotent insert: only add if not already present
-        existing = session.scalars(
-            select(LeafCompletionRecord).where(
-                LeafCompletionRecord.syllabus_id == syllabus.id,
-                LeafCompletionRecord.leaf_id == leaf_id,
-            )
-        ).first()
-        if not existing:
-            new_rec = LeafCompletionRecord(syllabus_id=syllabus.id, leaf_id=leaf_id)
-            session.add(new_rec)
-    else:
-        # Idempotent remove
-        stmt = delete(LeafCompletionRecord).where(
+    now = datetime.now(timezone.utc)
+    existing = session.scalars(
+        select(LeafCompletionRecord).where(
             LeafCompletionRecord.syllabus_id == syllabus.id,
             LeafCompletionRecord.leaf_id == leaf_id,
         )
-        session.execute(stmt)
+    ).first()
+
+    if is_completed:
+        # Idempotent insert: only add if not already present
+        if not existing:
+            new_rec = LeafCompletionRecord(syllabus_id=syllabus.id, leaf_id=leaf_id, completed_at=now)
+            session.add(new_rec)
+            session.add(
+                CompletionEvent(
+                    syllabus_id=syllabus.id,
+                    leaf_id=leaf_id,
+                    action="completed",
+                    recorded_at=now,
+                    event_source=event_source,
+                    idempotency_key=idempotency_key,
+                )
+            )
+            # Initialize or reactivate revision schedule
+            sched = session.scalars(
+                select(RevisionSchedule).where(
+                    RevisionSchedule.syllabus_id == syllabus.id,
+                    RevisionSchedule.leaf_id == leaf_id,
+                )
+            ).first()
+            if not sched:
+                tomorrow = now.date() + timedelta(days=1)
+                session.add(
+                    RevisionSchedule(
+                        syllabus_id=syllabus.id,
+                        leaf_id=leaf_id,
+                        algorithm_version="sm2-v1",
+                        repetition_count=0,
+                        ease_factor=2.5,
+                        interval_days=1,
+                        next_review_date=tomorrow,
+                        is_suspended=False,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            elif sched.is_suspended:
+                sched.is_suspended = False
+                sched.updated_at = now
+                if sched.next_review_date < now.date():
+                    sched.next_review_date = now.date()
+    else:
+        # Idempotent remove: only delete if present
+        if existing:
+            stmt = delete(LeafCompletionRecord).where(
+                LeafCompletionRecord.syllabus_id == syllabus.id,
+                LeafCompletionRecord.leaf_id == leaf_id,
+            )
+            session.execute(stmt)
+            session.add(
+                CompletionEvent(
+                    syllabus_id=syllabus.id,
+                    leaf_id=leaf_id,
+                    action="uncompleted",
+                    recorded_at=now,
+                    event_source=event_source,
+                    idempotency_key=idempotency_key,
+                )
+            )
+            # Suspend revision schedule if active
+            sched = session.scalars(
+                select(RevisionSchedule).where(
+                    RevisionSchedule.syllabus_id == syllabus.id,
+                    RevisionSchedule.leaf_id == leaf_id,
+                )
+            ).first()
+            if sched and not sched.is_suspended:
+                sched.is_suspended = True
+                sched.updated_at = now
 
     # Update syllabus updated_at
     rec = get_syllabus_record(session, syllabus.id)
     if rec:
-        rec.updated_at = datetime.now(timezone.utc)
+        rec.updated_at = now
 
     session.flush()
     return get_completed_leaf_ids(session, syllabus.id)
@@ -295,8 +386,10 @@ def update_bulk_completion(
     syllabus: HierarchicalSyllabus,
     target_leaf_ids: Set[str],
     is_completed: bool,
+    event_source: str = "bulk_toggle",
+    idempotency_key: Optional[str] = None,
 ) -> Set[str]:
-    """Atomically set completion for a set of resolved descendant leaf IDs."""
+    """Atomically set completion for a set of resolved descendant leaf IDs, logging historical events and updating revision schedules."""
     valid_leaves = set(get_all_leaf_ids(syllabus))
     invalid = target_leaf_ids - valid_leaves
     if invalid:
@@ -306,11 +399,54 @@ def update_bulk_completion(
         )
 
     current_completed = get_completed_leaf_ids(session, syllabus.id)
+    now = datetime.now(timezone.utc)
+    tomorrow = now.date() + timedelta(days=1)
 
     if is_completed:
         to_add = target_leaf_ids - current_completed
-        for lid in to_add:
-            session.add(LeafCompletionRecord(syllabus_id=syllabus.id, leaf_id=lid))
+        if to_add:
+            existing_scheds = {
+                s.leaf_id: s for s in session.scalars(
+                    select(RevisionSchedule).where(
+                        RevisionSchedule.syllabus_id == syllabus.id,
+                        RevisionSchedule.leaf_id.in_(to_add),
+                    )
+                ).all()
+            }
+            for lid in to_add:
+                session.add(LeafCompletionRecord(syllabus_id=syllabus.id, leaf_id=lid, completed_at=now))
+                session.add(
+                    CompletionEvent(
+                        syllabus_id=syllabus.id,
+                        leaf_id=lid,
+                        action="completed",
+                        recorded_at=now,
+                        event_source=event_source,
+                        idempotency_key=idempotency_key,
+                    )
+                )
+                if lid not in existing_scheds:
+                    session.add(
+                        RevisionSchedule(
+                            syllabus_id=syllabus.id,
+                            leaf_id=lid,
+                            algorithm_version="sm2-v1",
+                            repetition_count=0,
+                            ease_factor=2.5,
+                            interval_days=1,
+                            next_review_date=tomorrow,
+                            is_suspended=False,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    s = existing_scheds[lid]
+                    if s.is_suspended:
+                        s.is_suspended = False
+                        s.updated_at = now
+                        if s.next_review_date < now.date():
+                            s.next_review_date = now.date()
     else:
         to_remove = target_leaf_ids & current_completed
         if to_remove:
@@ -320,9 +456,34 @@ def update_bulk_completion(
             )
             session.execute(stmt)
 
+            existing_scheds = {
+                s.leaf_id: s for s in session.scalars(
+                    select(RevisionSchedule).where(
+                        RevisionSchedule.syllabus_id == syllabus.id,
+                        RevisionSchedule.leaf_id.in_(to_remove),
+                    )
+                ).all()
+            }
+            for lid in to_remove:
+                session.add(
+                    CompletionEvent(
+                        syllabus_id=syllabus.id,
+                        leaf_id=lid,
+                        action="uncompleted",
+                        recorded_at=now,
+                        event_source=event_source,
+                        idempotency_key=idempotency_key,
+                    )
+                )
+                if lid in existing_scheds:
+                    s = existing_scheds[lid]
+                    if not s.is_suspended:
+                        s.is_suspended = True
+                        s.updated_at = now
+
     rec = get_syllabus_record(session, syllabus.id)
     if rec:
-        rec.updated_at = datetime.now(timezone.utc)
+        rec.updated_at = now
 
     session.flush()
     return get_completed_leaf_ids(session, syllabus.id)
@@ -367,6 +528,15 @@ def delete_syllabus(session: Session, syllabus_id: str) -> bool:
     )
     session.execute(
         delete(TopicResource).where(TopicResource.syllabus_id == syllabus_id)
+    )
+    session.execute(
+        delete(CompletionEvent).where(CompletionEvent.syllabus_id == syllabus_id)
+    )
+    session.execute(
+        delete(RevisionSchedule).where(RevisionSchedule.syllabus_id == syllabus_id)
+    )
+    session.execute(
+        delete(RevisionEvent).where(RevisionEvent.syllabus_id == syllabus_id)
     )
     session.delete(rec)
     session.flush()

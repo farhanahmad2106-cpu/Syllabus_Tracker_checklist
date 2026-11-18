@@ -75,6 +75,8 @@ from backend.app.schemas import (
     BackupRestoreRequest,
     BackupRestoreResult,
     BulkToggleRequest,
+    DueRevisionItem,
+    DueRevisionsResponse,
     EmbeddedDocumentPreview,
     ExportOptions,
     FinalizeEnrollmentRequest,
@@ -86,16 +88,24 @@ from backend.app.schemas import (
     PacingMetrics,
     ParseReviewResponse,
     ResourceResponse,
+    ReviewRatingRequest,
+    ReviewRatingResponse,
     SaveNoteRequest,
     ScrapePreviewResponse,
     SetTargetDateRequest,
     StartUploadResponse,
+    SyllabusAnalyticsResponse,
     SyllabusPacingSummaryResponse,
     SyllabusRenameRequest,
     SyllabusResponse,
     SyllabusSummary,
 )
 from backend.app.parser import validate_file_metadata
+from backend.app.services.analytics import (
+    compute_syllabus_analytics,
+    get_due_revisions,
+    record_revision_review,
+)
 from backend.app.services.export_service import (
     generate_html_report,
     generate_json_backup,
@@ -791,6 +801,8 @@ def toggle_leaf(
             syllabus=syllabus,
             leaf_id=payload.leaf_id,
             is_completed=target_completed,
+            event_source="user_toggle",
+            idempotency_key=payload.idempotency_key,
         )
         session.commit()
     except Exception:
@@ -851,6 +863,8 @@ def toggle_branch(
             syllabus=syllabus,
             target_leaf_ids=target_set,
             is_completed=is_completed,
+            event_source="bulk_toggle",
+            idempotency_key=payload.idempotency_key,
         )
         session.commit()
     except Exception:
@@ -1472,4 +1486,88 @@ async def restore_syllabus_backup_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to restore backup: {str(e)}",
         )
+
+
+# --- Phase 12: Study Analytics & Spaced-Repetition Revision Endpoints ---
+
+@app.get("/api/syllabus/{syllabus_id}/analytics", response_model=SyllabusAnalyticsResponse)
+def get_syllabus_analytics(
+    syllabus_id: str,
+    reference_date: Optional[str] = Query(default=None, description="Optional YYYY-MM-DD reference date"),
+    session: Session = Depends(get_db),
+):
+    """Retrieve comprehensive study analytics, velocity history, streak metrics, and revision queue stats."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+
+    parsed_ref_date = date.fromisoformat(reference_date) if reference_date else None
+    return compute_syllabus_analytics(
+        session=session,
+        syllabus=syllabus,
+        reference_date=parsed_ref_date,
+    )
+
+
+@app.get("/api/syllabus/{syllabus_id}/revisions/due", response_model=DueRevisionsResponse)
+def get_due_revisions_endpoint(
+    syllabus_id: str,
+    include_upcoming: bool = Query(default=False, description="Include upcoming reviews scheduled within 7 days"),
+    limit: int = Query(default=50, ge=1, le=200),
+    reference_date: Optional[str] = Query(default=None, description="Optional YYYY-MM-DD reference date"),
+    session: Session = Depends(get_db),
+):
+    """Retrieve enrolled subtopic leaves currently due or upcoming for spaced-repetition review."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+
+    parsed_ref_date = date.fromisoformat(reference_date) if reference_date else None
+    return get_due_revisions(
+        session=session,
+        syllabus=syllabus,
+        include_upcoming=include_upcoming,
+        limit=limit,
+        reference_date=parsed_ref_date,
+    )
+
+
+@app.post("/api/syllabus/{syllabus_id}/revisions/{leaf_id}/review", response_model=ReviewRatingResponse)
+def submit_revision_review(
+    syllabus_id: str,
+    leaf_id: str,
+    payload: ReviewRatingRequest,
+    session: Session = Depends(get_db),
+):
+    """Submit a recall quality rating (1-4) for a spaced-repetition review."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    client_date = date.fromisoformat(payload.client_review_date) if payload.client_review_date else None
+
+    try:
+        response = record_revision_review(
+            session=session,
+            syllabus_id=syllabus_id,
+            leaf_id=leaf_id,
+            quality=payload.quality,
+            idempotency_key=payload.idempotency_key,
+            client_review_date=client_date,
+        )
+        session.commit()
+        return response
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception:
+        session.rollback()
+        raise
+
 
