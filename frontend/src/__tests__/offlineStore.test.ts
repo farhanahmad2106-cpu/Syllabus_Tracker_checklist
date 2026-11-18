@@ -8,6 +8,8 @@ describe('offlineStore - IndexedDB Local Persistence Layer', () => {
       id: 'syl_offline_1',
       title: 'Distributed Systems',
       source_filename: 'distributed.pdf',
+      created_at: '2026-03-30T00:00:00Z',
+      updated_at: '2026-03-30T00:00:00Z',
       schema_version: 2,
       years: [],
     },
@@ -16,9 +18,6 @@ describe('offlineStore - IndexedDB Local Persistence Layer', () => {
       total_leaves: 10,
       completed_leaves: 2,
       progress_percent: 20.0,
-      total_leaf_nodes: 10,
-      completed_leaf_nodes: 2,
-      percentage: 20.0,
     },
     node_progress: {},
     warnings: [],
@@ -69,8 +68,7 @@ describe('offlineStore - IndexedDB Local Persistence Layer', () => {
       }),
     });
 
-    const mockIDBTransaction = (storeNames: string | string[]) => {
-      const names = Array.isArray(storeNames) ? storeNames : [storeNames];
+    const mockIDBTransaction = (_storeNames: string | string[]) => {
       const tx: any = {
         objectStore: vi.fn((name: string) => mockIDBObjectStore(name)),
         oncomplete: null,
@@ -86,9 +84,9 @@ describe('offlineStore - IndexedDB Local Persistence Layer', () => {
 
     const mockDB: any = {
       objectStoreNames: {
-        contains: vi.fn((name: string) => true),
+        contains: vi.fn((_name: string) => true),
       },
-      transaction: vi.fn((names, mode) => mockIDBTransaction(names)),
+      transaction: vi.fn((_names, _mode) => mockIDBTransaction(_names)),
       close: vi.fn(),
     };
 

@@ -148,6 +148,8 @@ describe('App Component Layout, Sidebar Deduplication, and Drawer Interactions',
       refreshNotesAndResources: vi.fn(),
       noteLeafIds: new Set<string>(),
       resourceCounts: {},
+      syllabusNotes: [],
+      syllabusResources: [],
       activeNoteLeaf: null,
       activeResourceNode: null,
       openNoteDrawer: vi.fn(),
@@ -248,12 +250,14 @@ describe('App Component Layout, Sidebar Deduplication, and Drawer Interactions',
     render(<App />);
 
     // Mobile action buttons
-    const mobileElectiveBtn = screen.getByRole('button', { name: 'Configure Electives' });
+    const electiveBtns = screen.getAllByRole('button', { name: 'Configure Electives' });
+    const mobileElectiveBtn = electiveBtns.find((btn) => btn.className.includes('min-h-[44px]'));
+    expect(mobileElectiveBtn).toBeDefined();
     expect(mobileElectiveBtn).toBeInTheDocument();
-    expect(mobileElectiveBtn.className).toContain('min-h-[44px]');
 
-    const mobileDeleteBtn = screen.getByRole('button', { name: 'Delete Document' });
+    const deleteBtns = screen.getAllByRole('button', { name: 'Delete Document' });
+    const mobileDeleteBtn = deleteBtns.find((btn) => btn.className.includes('min-h-[44px]'));
+    expect(mobileDeleteBtn).toBeDefined();
     expect(mobileDeleteBtn).toBeInTheDocument();
-    expect(mobileDeleteBtn.className).toContain('min-h-[44px]');
   });
 });

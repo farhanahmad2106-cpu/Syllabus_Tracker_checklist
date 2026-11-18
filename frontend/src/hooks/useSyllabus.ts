@@ -117,11 +117,10 @@ export function useSyllabus() {
             source_filename: c.data.syllabus.source_filename,
             source_type: c.data.syllabus.source_type,
             source_url: c.data.syllabus.source_url,
-            created_at: new Date(c.updatedAt).toISOString(),
-            schema_version: c.data.syllabus.schema_version,
-            total_topics: c.data.progress.total_leaf_nodes,
-            completed_topics: c.data.progress.completed_leaf_nodes,
-            completion_percentage: c.data.progress.percentage,
+            created_at: c.data.syllabus.created_at || new Date(c.updatedAt).toISOString(),
+            updated_at: c.data.syllabus.updated_at || new Date(c.updatedAt).toISOString(),
+            progress: c.data.progress,
+            leaf_count: c.data.progress.total_leaves,
           }));
           setSyllabi(summaries);
         }

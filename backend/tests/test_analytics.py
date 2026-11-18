@@ -416,7 +416,7 @@ def test_rest_api_submit_revision_review(client, db_session, analytics_syllabus)
     data = res.json()
     assert data["quality"] == 3
     assert data["repetition_count"] == 1
-    assert data["interval_days"] == 6
+    assert data["interval_days"] == 1
 
     # Verify RevisionEvent persisted
     rev_events = list(

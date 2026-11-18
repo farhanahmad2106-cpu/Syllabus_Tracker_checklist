@@ -545,7 +545,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   useEffect(() => {
     if (listRef.current) {
       const activeEl = listRef.current.querySelector<HTMLElement>(`[data-result-index="${selectedIndex}"]`);
-      if (activeEl) {
+      if (activeEl && typeof activeEl.scrollIntoView === 'function') {
         activeEl.scrollIntoView({ block: 'nearest' });
       }
     }

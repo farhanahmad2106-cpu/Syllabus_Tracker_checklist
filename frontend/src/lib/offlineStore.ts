@@ -4,9 +4,7 @@
  */
 
 import type {
-  HierarchicalSyllabus,
   PacingMetrics,
-  ProgressSummary,
   SyllabusResponse,
   TopicNote,
   TopicResource,
@@ -125,9 +123,19 @@ function runTransaction<T>(
       }
 
       let result: T;
+      let fnResolved = false;
+      let txCompleted = false;
+
+      const finishIfDone = () => {
+        if (fnResolved && (txCompleted || !tx.oncomplete)) {
+          db.close();
+          resolve(result);
+        }
+      };
+
       tx.oncomplete = () => {
-        db.close();
-        resolve(result);
+        txCompleted = true;
+        finishIfDone();
       };
       tx.onerror = () => {
         db.close();
@@ -144,6 +152,8 @@ function runTransaction<T>(
           fnResult
             .then((res) => {
               result = res;
+              fnResolved = true;
+              finishIfDone();
             })
             .catch((err) => {
               tx.abort();
@@ -152,6 +162,8 @@ function runTransaction<T>(
             });
         } else {
           result = fnResult;
+          fnResolved = true;
+          finishIfDone();
         }
       } catch (err) {
         tx.abort();
@@ -256,7 +268,7 @@ function generateId(): string {
  * Enqueue a mutation. Includes intelligent coalescing for notes and leaf toggles.
  */
 export async function enqueueMutation(
-  mutation: Omit<OutboxMutation, 'id' | 'createdAt' | 'status' | 'retryCount'> & {
+  mutation: Omit<OutboxMutation, 'id' | 'createdAt' | 'status' | 'retryCount' | 'userId'> & {
     userId?: string;
   }
 ): Promise<OutboxMutation> {

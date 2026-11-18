@@ -77,7 +77,7 @@ describe('useOfflineSync Hook', () => {
       retryCount: 0,
     };
 
-    vi.mocked(offlineStore.getPendingMutations).mockResolvedValue([mockMutation]);
+    vi.mocked(offlineStore.getPendingMutations).mockResolvedValueOnce([mockMutation]).mockResolvedValue([]);
     vi.mocked(offlineStore.getOutboxCount).mockResolvedValue(1);
     vi.mocked(api.toggleLeaf).mockResolvedValue({} as any);
 

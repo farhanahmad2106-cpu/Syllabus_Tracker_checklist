@@ -561,12 +561,10 @@ describe('SyllabusTree', () => {
                     id: 'subj_flagged',
                     title: 'Flagged Subject',
                     is_enrolled: true,
-                    evidence_status: 'needs_review' as any,
                     modules: [
                       {
                         id: 'mod_flagged',
                         title: 'Flagged Module',
-                        grounding_status: 'needs_review' as any,
                         topics: [
                           {
                             id: 'top_flagged',
@@ -692,15 +690,15 @@ describe('SyllabusTree', () => {
       expect(semCard.className).toContain('ml-2.5 md:ml-4');
 
       // Tier 3: SubjectCard ml-2.5 md:ml-4
-      const subjCard = screen.getByTestId('subject-card-subj_ai101');
+      const subjCard = screen.getByTestId('subject-card-subj_cs101');
       expect(subjCard.className).toContain('ml-2.5 md:ml-4');
 
       // Tier 4: ModuleCard ml-2 md:ml-4
-      const modCard = screen.getByTestId('module-card-mod_ai_m1');
+      const modCard = screen.getByTestId('module-card-mod_1');
       expect(modCard.className).toContain('ml-2 md:ml-4');
 
       // Tier 5: TopicLeafRow pl-2 md:pl-4 and min-h-[44px]
-      const topicRow = screen.getByTestId('topic-row-top_ai_search');
+      const topicRow = screen.getByTestId('topic-row-top_1');
       expect(topicRow.className).toContain('pl-2 md:pl-4');
       expect(topicRow.className).toContain('min-h-[44px]');
     });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   BarChart2,
   BookOpen,
@@ -10,7 +10,6 @@ import {
   Menu,
   Monitor,
   Moon,
-  MoreVertical,
   PanelLeftClose,
   Plus,
   RefreshCw,
@@ -80,7 +79,7 @@ export const App: React.FC = () => {
     handleFinalizeEnrollment,
   } = useSyllabus();
 
-  const { theme, resolvedTheme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
 
   const {
     isOnline,
@@ -107,7 +106,6 @@ export const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
   const [targetNavNodeId, setTargetNavNodeId] = useState<string | null>(null);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'tree' | 'analytics'>('tree');
 
@@ -162,8 +160,7 @@ export const App: React.FC = () => {
           include_resources: true,
           include_pacing: true,
           enrolled_only: true,
-        },
-        activeSyllabus.syllabus.source_filename || activeSyllabus.syllabus.title
+        }
       );
     } catch (err) {
       console.error('Failed to export markdown', err);

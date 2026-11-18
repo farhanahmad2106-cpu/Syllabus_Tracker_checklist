@@ -72,7 +72,7 @@ describe('TopicResourcesModal Component', () => {
     const urlInput = screen.getByLabelText(/URL/i);
     fireEvent.change(urlInput, { target: { value: 'https://youtu.be/abcdef' } });
 
-    const select = screen.getByLabelText(/Category/i) as HTMLSelectElement;
+    const select = screen.getByLabelText(/Type/i) as HTMLSelectElement;
     expect(select.value).toBe('youtube');
   });
 
@@ -103,20 +103,20 @@ describe('TopicResourcesModal Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Resource Title/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Title/i)).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText(/Resource Title/i), {
+    fireEvent.change(screen.getByLabelText(/Title/i), {
       target: { value: 'Stanford Slides' },
     });
     fireEvent.change(screen.getByLabelText(/URL/i), {
       target: { value: 'https://stanford.edu/slides.pdf' },
     });
-    fireEvent.change(screen.getByLabelText(/Category/i), {
+    fireEvent.change(screen.getByLabelText(/Type/i), {
       target: { value: 'slides' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Save Resource/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Resource/i }));
 
     await waitFor(() => {
       expect(api.addTopicResource).toHaveBeenCalledWith('syl_1', {

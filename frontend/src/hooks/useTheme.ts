@@ -101,10 +101,11 @@ export function useTheme(): UseThemeReturn {
     }
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleSystemChange = () => {
+    const handleSystemChange = (e?: MediaQueryListEvent | { matches: boolean }) => {
       // Only react to OS changes if user preference is currently 'system'
       if (theme === 'system') {
-        const newResolved = mediaQuery.matches ? 'dark' : 'light';
+        const isDark = typeof e?.matches === 'boolean' ? e.matches : mediaQuery.matches;
+        const newResolved = isDark ? 'dark' : 'light';
         setResolvedTheme(newResolved);
         applyThemeToDocument(newResolved);
       }

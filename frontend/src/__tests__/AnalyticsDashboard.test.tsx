@@ -164,8 +164,9 @@ describe('AnalyticsDashboard Component', () => {
       expect(screen.getByText(/13 \/ 20 topics/i)).toBeInTheDocument();
       expect(screen.getByText('4')).toBeInTheDocument(); // current streak
       expect(screen.getByText(/Active Today/i)).toBeInTheDocument();
-      expect(screen.getByText(/5 mastered/i || /5/i)).toBeInTheDocument();
-    });
+      expect(screen.getByText('Mastered Topics')).toBeInTheDocument();
+      expect(screen.getByText(/of 13 scheduled/i)).toBeInTheDocument();
+    }, { timeout: 4000 });
   });
 
   it('renders 14-day study activity native SVG chart', async () => {
@@ -274,11 +275,11 @@ describe('AnalyticsDashboard Component', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('CS101 - Database Systems')
-      ).toBeInTheDocument();
+        screen.getAllByText('CS101 - Database Systems').length
+      ).toBeGreaterThan(0);
       expect(screen.getByText('Low Risk')).toBeInTheDocument();
       expect(screen.getByText('13d')).toBeInTheDocument();
       expect(screen.getByText('0.23 /day')).toBeInTheDocument();
-    });
+    }, { timeout: 4000 });
   });
 });

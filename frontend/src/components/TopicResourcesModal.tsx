@@ -148,7 +148,6 @@ export const TopicResourcesModal: React.FC<TopicResourcesModalProps> = ({
         // Optimistic local resource item
         const optimisticResource: TopicResource = {
           id: -Date.now(),
-          syllabus_id: syllabusId,
           node_id: nodeId,
           node_type: nodeType,
           title: trimmedTitle,

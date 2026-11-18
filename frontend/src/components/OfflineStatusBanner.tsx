@@ -2,8 +2,6 @@ import React from 'react';
 import {
   AlertCircle,
   AlertTriangle,
-  CheckCircle2,
-  CloudOff,
   RefreshCw,
   WifiOff,
   X,

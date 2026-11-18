@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addTopicResource,
   clearNodeDeadline,
-  deleteSyllabus,
   deleteTopicNote,
   deleteTopicResource,
   fetchHealth,
@@ -25,9 +24,8 @@ import {
   getPendingMutations,
   getUnresolvedConflicts,
   markConflictResolved,
-  OutboxMutation,
   recordConflict,
-  SyncConflictRecord,
+  type SyncConflictRecord,
   updateMutationStatus,
 } from '../lib/offlineStore';
 
