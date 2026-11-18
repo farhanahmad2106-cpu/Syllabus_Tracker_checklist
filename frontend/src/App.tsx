@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   BarChart2,
   BookOpen,
@@ -35,6 +35,7 @@ import { useOfflineSync } from './hooks/useOfflineSync';
 import { useSyllabus } from './hooks/useSyllabus';
 import { useTheme } from './hooks/useTheme';
 import { downloadExportMarkdown } from './lib/api';
+import { registerNativeBackButton, syncNativeStatusBar } from './lib/nativeBridge';
 
 export const App: React.FC = () => {
   const {
@@ -79,7 +80,7 @@ export const App: React.FC = () => {
     handleFinalizeEnrollment,
   } = useSyllabus();
 
-  const { theme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
 
   const {
     isOnline,
@@ -108,6 +109,66 @@ export const App: React.FC = () => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [targetNavNodeId, setTargetNavNodeId] = useState<string | null>(null);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'tree' | 'analytics'>('tree');
+
+  // Synchronize native status bar appearance with resolved theme
+  useEffect(() => {
+    syncNativeStatusBar(resolvedTheme).catch(() => {});
+  }, [resolvedTheme]);
+
+  // Handle hardware back button on native Android with priority overlay hierarchy
+  useEffect(() => {
+    const unregister = registerNativeBackButton(() => {
+      // Priority 1: Global command palette
+      if (isCommandPaletteOpen) {
+        setIsCommandPaletteOpen(false);
+        return true;
+      }
+      // Priority 2: Confirm delete modal
+      if (deletingId !== null) {
+        setDeletingId(null);
+        return true;
+      }
+      // Priority 3: Topic note drawer
+      if (activeNoteLeaf) {
+        closeNoteDrawer();
+        return true;
+      }
+      // Priority 4: Topic resources modal
+      if (activeResourceNode) {
+        closeResourceModal();
+        return true;
+      }
+      // Priority 5: Upload modal
+      if (showUploadModal) {
+        setShowUploadModal(false);
+        return true;
+      }
+      // Priority 6: Elective onboarding modal
+      if (showElectiveModal) {
+        closeElectiveModal();
+        return true;
+      }
+      // Priority 7: Mobile sidebar drawer (when open on screens < 768px)
+      if (isSidebarOpen && typeof window !== 'undefined' && window.innerWidth < 768) {
+        setIsSidebarOpen(false);
+        return true;
+      }
+      return false;
+    });
+
+    return unregister;
+  }, [
+    isCommandPaletteOpen,
+    deletingId,
+    activeNoteLeaf,
+    closeNoteDrawer,
+    activeResourceNode,
+    closeResourceModal,
+    showUploadModal,
+    showElectiveModal,
+    closeElectiveModal,
+    isSidebarOpen,
+  ]);
 
   const isMac = useMemo(() => {
     return typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');

@@ -32,3 +32,19 @@ temp_uploads/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Mobile / Capacitor Native Build Outputs & Secrets
+frontend/android/app/build/
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/captures/
+frontend/android/local.properties
+frontend/ios/App/build/
+frontend/ios/App/Pods/
+frontend/ios/App/Podfile.lock
+frontend/ios/App/App.xcworkspace/xcuserdata/
+frontend/ios/App/App.xcodeproj/xcuserdata/
+*.keystore
+*.jks
+*.p12
+*.mobileprovision

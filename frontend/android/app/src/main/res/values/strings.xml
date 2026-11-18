@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Syllabus Tracker</string>
+    <string name="title_activity_main">Syllabus Tracker</string>
+    <string name="package_name">com.syllabustracker.app</string>
+    <string name="custom_url_scheme">com.syllabustracker.app</string>
+</resources>

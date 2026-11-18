@@ -26,8 +26,35 @@ import type {
   TopicResource,
   UploadProgress,
 } from '../types/syllabus';
+import { isNativePlatform } from './nativeBridge';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+/**
+ * Resolves the API base URL based on runtime environment.
+ * - In native Capacitor environments (Android / iOS WebView), an absolute URL
+ *   configured via VITE_API_BASE_URL is required to reach the backend host.
+ * - In web / PWA environments, defaults to '/api' or the configured URL.
+ */
+export function resolveApiBaseUrl(
+  configuredUrl?: string,
+  isNative: boolean = isNativePlatform()
+): string {
+  const envUrl = configuredUrl ?? (import.meta.env?.VITE_API_BASE_URL as string | undefined);
+  if (envUrl && envUrl.trim() !== '') {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
+
+  if (isNative) {
+    console.warn(
+      '[SyllabusTracker:API] VITE_API_BASE_URL is not configured for native mobile platform. ' +
+      'Native requests may fail without an absolute backend host. Falling back to http://127.0.0.1:8000/api.'
+    );
+    return 'http://127.0.0.1:8000/api';
+  }
+
+  return '/api';
+}
+
+const API_BASE = resolveApiBaseUrl();
 
 export class ApiError extends Error {
   status: number;
