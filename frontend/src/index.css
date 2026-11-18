@@ -1,32 +1,118 @@
 @import "tailwindcss";
 
 @layer base {
-  :root {
-    --bg-base: #090d16;
-    --bg-surface: #111827;
-    --bg-elevated: #1f2937;
-    --border-subtle: #374151;
-    --text-primary: #f9fafb;
-    --text-secondary: #9ca3af;
+  :root,
+  [data-theme="dark"] {
+    /* Background surfaces */
+    --bg-canvas: #09090b;
+    --bg-surface: #111114;
+    --bg-surface-elevated: #18181b;
+    --bg-surface-hover: #202024;
+    --bg-surface-active: #27272a;
+
+    /* Legacy compatibility tokens */
+    --bg-base: #09090b;
+    --bg-elevated: #18181b;
+
+    /* Borders */
+    --border-hairline: rgba(255, 255, 255, 0.06);
+    --border-subtle: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --border-focus: rgba(16, 185, 129, 0.6);
+
+    /* Typography */
+    --text-primary: #fafafa;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --text-inverse: #09090b;
+
+    /* Accent */
+    --accent-primary: #10b981;
+    --accent-hover: #059669;
+    --accent-subtle: rgba(16, 185, 129, 0.12);
+    --accent-foreground: #ffffff;
     --accent-emerald: #10b981;
     --accent-emerald-glow: rgba(16, 185, 129, 0.2);
+
+    /* Status indicators */
+    --status-verified: #10b981;
+    --status-review: #f59e0b;
+    --status-unverified: #f43f5e;
+    --status-risk: #f97316;
+    --status-overdue: #ef4444;
+
+    /* Scrollbars */
+    --scrollbar-track: #09090b;
+    --scrollbar-thumb: #27272a;
+    --scrollbar-thumb-hover: #10b981;
+  }
+
+  [data-theme="light"] {
+    /* Background surfaces */
+    --bg-canvas: #fafafa;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #ffffff;
+    --bg-surface-hover: #f4f4f5;
+    --bg-surface-active: #e4e4e7;
+
+    /* Legacy compatibility tokens */
+    --bg-base: #fafafa;
+    --bg-elevated: #ffffff;
+
+    /* Borders */
+    --border-hairline: rgba(0, 0, 0, 0.08);
+    --border-subtle: rgba(0, 0, 0, 0.12);
+    --border-strong: rgba(0, 0, 0, 0.22);
+    --border-focus: rgba(5, 150, 105, 0.6);
+
+    /* Typography */
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #71717a;
+    --text-inverse: #fafafa;
+
+    /* Accent */
+    --accent-primary: #059669;
+    --accent-hover: #047857;
+    --accent-subtle: rgba(5, 150, 105, 0.10);
+    --accent-foreground: #ffffff;
+    --accent-emerald: #059669;
+    --accent-emerald-glow: rgba(5, 150, 105, 0.15);
+
+    /* Status indicators */
+    --status-verified: #059669;
+    --status-review: #d97706;
+    --status-unverified: #e11d48;
+    --status-risk: #ea580c;
+    --status-overdue: #dc2626;
+
+    /* Scrollbars */
+    --scrollbar-track: #fafafa;
+    --scrollbar-thumb: #d4d4d8;
+    --scrollbar-thumb-hover: #059669;
   }
 
   body {
     margin: 0;
     min-height: 100vh;
-    background-color: var(--bg-base);
+    background-color: var(--bg-canvas);
     color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 }
 
-/* Global sleek dark scrollbar matching dark zinc and emerald theme */
+/* Numeric alignment utility for statistics, percentages, and IDs */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Global scrollbars adapting to active theme tokens */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #374151 #090d16;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar {
@@ -35,27 +121,27 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #090d16;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: var(--scrollbar-thumb);
   border-radius: 9999px;
-  border: 1px solid #111827;
+  border: 1px solid var(--border-hairline);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #10b981;
+  background: var(--scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
-  background: #090d16;
+  background: var(--scrollbar-track);
 }
 
 /* Utility for elements with subtle transparent track */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #374151 transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -68,11 +154,27 @@
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: var(--scrollbar-thumb);
   border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #10b981;
+  background: var(--scrollbar-thumb-hover);
 }
 
+/* Highlight animation for deep navigation */
+@keyframes nav-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.4);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.highlight-target {
+  animation: nav-pulse 1.8s cubic-bezier(0, 0, 0.2, 1) 1;
+}

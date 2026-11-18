@@ -27,13 +27,13 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
     <div className="w-full space-y-1.5">
       {showLabel && (
         <div className="flex items-center justify-between text-xs font-medium">
-          <span className="text-gray-300">
-            {labelPrefix && <span className="font-semibold text-gray-200">{labelPrefix}: </span>}
+          <span className="text-[var(--text-secondary)]">
+            {labelPrefix && <span className="font-semibold text-[var(--text-primary)]">{labelPrefix}: </span>}
             {completed_leaves} of {total_leaves} items completed
           </span>
           <span
             className={`font-semibold tabular-nums ${
-              isComplete ? 'text-emerald-400' : 'text-gray-300'
+              isComplete ? 'text-emerald-500 dark:text-emerald-400' : 'text-[var(--text-secondary)]'
             }`}
           >
             {progress_percent.toFixed(1)}%
@@ -45,7 +45,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
         aria-valuenow={progress_percent}
         aria-valuemin={0}
         aria-valuemax={100}
-        className={`w-full overflow-hidden rounded-full bg-gray-800 border border-gray-700/60 ${heightClasses}`}
+        className={`w-full overflow-hidden rounded-full bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] ${heightClasses}`}
       >
         <div
           className={`h-full transition-all duration-300 ease-out rounded-full ${

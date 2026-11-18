@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   BookOpen,
   Cpu,
@@ -7,12 +7,18 @@ import {
   Globe,
   GraduationCap,
   Menu,
+  Monitor,
+  Moon,
+  MoreVertical,
   PanelLeftClose,
   Plus,
   RefreshCw,
+  Search,
+  Sun,
   Trash2,
   X,
 } from 'lucide-react';
+import { CommandPalette } from './components/CommandPalette';
 import { ConfirmDelete } from './components/ConfirmDelete';
 import { ElectiveOnboardingModal } from './components/ElectiveOnboardingModal';
 import { EmptyState } from './components/EmptyState';
@@ -24,6 +30,8 @@ import { SyllabusTree } from './components/SyllabusTree';
 import { TopicNotesDrawer } from './components/TopicNotesDrawer';
 import { TopicResourcesModal } from './components/TopicResourcesModal';
 import { useSyllabus } from './hooks/useSyllabus';
+import { useTheme } from './hooks/useTheme';
+import { downloadExportMarkdown } from './lib/api';
 
 export const App: React.FC = () => {
   const {
@@ -51,6 +59,8 @@ export const App: React.FC = () => {
     handleClearDeadline,
     noteLeafIds,
     resourceCounts,
+    syllabusNotes,
+    syllabusResources,
     activeNoteLeaf,
     activeResourceNode,
     openNoteDrawer,
@@ -66,12 +76,21 @@ export const App: React.FC = () => {
     handleFinalizeEnrollment,
   } = useSyllabus();
 
+  const { theme, resolvedTheme, setTheme } = useTheme();
+
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isMobileActionsOpen, setIsMobileActionsOpen] = useState(false);
+  const [targetNavNodeId, setTargetNavNodeId] = useState<string | null>(null);
+
+  const isMac = useMemo(() => {
+    return typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
+  }, []);
 
   // Canonical deduplication at presentation layer by document ID
   const uniqueSyllabi = useMemo(() => {
@@ -110,11 +129,33 @@ export const App: React.FC = () => {
     setIsEditingTitle(false);
   };
 
+  const handleQuickExportMarkdown = async () => {
+    if (!activeSyllabus) return;
+    try {
+      await downloadExportMarkdown(
+        activeSyllabus.syllabus.id,
+        {
+          include_notes: true,
+          include_resources: true,
+          include_pacing: true,
+          enrolled_only: true,
+        },
+        activeSyllabus.syllabus.source_filename || activeSyllabus.syllabus.title
+      );
+    } catch (err) {
+      console.error('Failed to export markdown', err);
+    }
+  };
+
+  const handleDeepNavigate = (nodeId: string) => {
+    setTargetNavNodeId(nodeId);
+  };
+
   return (
-    <div className="h-screen bg-gray-950 text-gray-100 flex flex-col font-sans overflow-hidden">
+    <div className="h-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] flex flex-col font-sans overflow-hidden transition-colors duration-200">
       {/* Top Navigation Bar */}
-      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur shrink-0 z-30 px-4 lg:px-8 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <header className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/90 backdrop-blur shrink-0 z-30 px-3 sm:px-4 lg:px-8 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4 transition-colors">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           {/* Sidebar Drawer Toggle Button */}
           <button
             type="button"
@@ -123,7 +164,7 @@ export const App: React.FC = () => {
             aria-expanded={isSidebarOpen}
             aria-controls="syllabus-sidebar"
             aria-label={isSidebarOpen ? 'Collapse sidebar drawer' : 'Expand sidebar drawer'}
-            className="p-2 rounded-xl text-gray-400 hover:text-gray-100 hover:bg-gray-800/80 transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            className="p-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50 shrink-0"
           >
             {isSidebarOpen ? (
               <PanelLeftClose className="w-5 h-5" />
@@ -132,27 +173,114 @@ export const App: React.FC = () => {
             )}
           </button>
 
-          <div className="p-2 bg-gradient-to-tr from-emerald-600 to-teal-500 rounded-xl text-gray-950 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+          <div className="p-2 bg-gradient-to-tr from-emerald-600 to-teal-500 rounded-xl text-gray-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0">
             <GraduationCap className="w-5 h-5 font-bold" />
           </div>
-          <div>
-            <h1 className="text-base font-bold tracking-tight text-gray-100 flex items-center gap-2">
-              Syllabus Tracker
-              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <div className="min-w-0">
+            <h1 className="text-sm sm:text-base font-bold tracking-tight text-[var(--text-primary)] flex items-center gap-2 truncate">
+              <span>Syllabus Tracker</span>
+              <span className="hidden md:inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 Local-First
               </span>
             </h1>
-            <p className="text-xs text-gray-400">Hierarchical Curriculum & Progress Engine</p>
+            <p className="text-[11px] text-[var(--text-muted)] truncate hidden sm:block">Hierarchical Curriculum & Progress Engine</p>
           </div>
         </div>
 
-        {/* Ollama Diagnostic Badge & Actions */}
-        <div className="flex items-center gap-3">
+        {/* Center: Command Palette Trigger Button */}
+        <div className="flex-1 max-w-md mx-2 hidden md:block">
+          <button
+            type="button"
+            data-testid="global-search-trigger"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            aria-label={`Search curriculum (${isMac ? 'Cmd+K' : 'Ctrl+K'})`}
+            className="w-full flex items-center justify-between px-3.5 py-1.5 text-xs rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all cursor-pointer shadow-xs focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+          >
+            <div className="flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Search courses, topics, notes...</span>
+            </div>
+            <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
+              {isMac ? '⌘K' : 'Ctrl+K'}
+            </kbd>
+          </button>
+        </div>
+
+        {/* Right Actions: Mobile search, Theme selector, Diagnostic Badge, Refresh, Import */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          {/* Mobile search trigger */}
+          <button
+            type="button"
+            data-testid="mobile-search-trigger"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            aria-label="Open search and command palette"
+            className="p-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] md:hidden transition-colors border border-[var(--border-subtle)]"
+          >
+            <Search className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          </button>
+
+          {/* Accessible Three-Way Theme Control */}
           <div
-            className={`hidden sm:flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-all ${
+            role="radiogroup"
+            aria-label="Select color theme"
+            className="flex items-center p-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)] shrink-0"
+          >
+            <button
+              type="button"
+              role="radio"
+              data-testid="theme-btn-light"
+              aria-checked={theme === 'light'}
+              onClick={() => setTheme('light')}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                theme === 'light'
+                  ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-semibold shadow-xs'
+                  : 'hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+              }`}
+              title="Light theme"
+              aria-label="Light theme"
+            >
+              <Sun className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              role="radio"
+              data-testid="theme-btn-dark"
+              aria-checked={theme === 'dark'}
+              onClick={() => setTheme('dark')}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                theme === 'dark'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold shadow-xs'
+                  : 'hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+              }`}
+              title="Dark theme"
+              aria-label="Dark theme"
+            >
+              <Moon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              role="radio"
+              data-testid="theme-btn-system"
+              aria-checked={theme === 'system'}
+              onClick={() => setTheme('system')}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                theme === 'system'
+                  ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400 font-semibold shadow-xs'
+                  : 'hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+              }`}
+              title="System theme"
+              aria-label="System theme"
+            >
+              <Monitor className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Ollama Diagnostic Badge */}
+          <div
+            className={`hidden lg:flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-all ${
               health?.ollama?.is_reachable
-                ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
-                : 'bg-amber-950/40 border-amber-800 text-amber-300'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-300'
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-300'
             }`}
             title={health?.ollama?.message || 'Checking local LLM...'}
           >
@@ -160,7 +288,7 @@ export const App: React.FC = () => {
             <span>
               {health?.ollama?.is_reachable
                 ? `Ollama: ${health.ollama.resolved_model || 'Ready'}`
-                : 'Ollama: Offline (Rule fallback enabled)'}
+                : 'Ollama: Offline (Rule fallback)'}
             </span>
           </div>
 
@@ -168,7 +296,7 @@ export const App: React.FC = () => {
             type="button"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className={`p-2 text-gray-400 hover:text-gray-200 rounded-xl hover:bg-gray-800 transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50 ${
+            className={`p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded-xl hover:bg-[var(--bg-surface-hover)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50 ${
               isRefreshing ? 'cursor-not-allowed opacity-75' : ''
             }`}
             title="Refresh database and health"
@@ -176,18 +304,19 @@ export const App: React.FC = () => {
           >
             <RefreshCw
               className={`w-4 h-4 transition-transform ${
-                isRefreshing ? 'animate-spin text-emerald-400' : ''
+                isRefreshing ? 'animate-spin text-emerald-500' : ''
               }`}
             />
           </button>
 
           <button
             type="button"
+            data-testid="import-syllabus-btn"
             onClick={() => setShowUploadModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-400"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white dark:text-gray-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-emerald-400"
           >
             <Plus className="w-4 h-4" />
-            <span>Import Syllabus</span>
+            <span className="hidden sm:inline">Import Syllabus</span>
           </button>
         </div>
       </header>
@@ -197,7 +326,7 @@ export const App: React.FC = () => {
         {/* Mobile Backdrop Overlay */}
         {isSidebarOpen && (
           <div
-            className="fixed inset-0 top-[65px] z-20 bg-black/60 backdrop-blur-xs md:hidden"
+            className="fixed inset-0 top-[57px] sm:top-[65px] z-20 bg-black/60 backdrop-blur-xs md:hidden"
             onClick={() => setIsSidebarOpen(false)}
             aria-hidden="true"
           />
@@ -207,23 +336,23 @@ export const App: React.FC = () => {
         <aside
           id="syllabus-sidebar"
           aria-label="Document Navigation Sidebar"
-          className={`flex flex-col min-h-0 bg-gray-900/70 border-r border-gray-800/80 transition-all duration-300 ease-in-out motion-reduce:transition-none z-20 ${
+          className={`flex flex-col min-h-0 bg-[var(--bg-surface)] border-r border-[var(--border-subtle)] transition-all duration-300 ease-in-out motion-reduce:transition-none z-20 ${
             // Mobile positioning: fixed drawer
-            'fixed md:static inset-y-0 left-0 top-[65px] md:top-0 ' +
+            'fixed md:static inset-y-0 left-0 top-[57px] sm:top-0 ' +
             (isSidebarOpen
               ? 'w-80 opacity-100 translate-x-0'
               : '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 md:p-0 md:border-none pointer-events-none overflow-hidden')
           }`}
         >
           {/* Sidebar Header */}
-          <div className="p-4 border-b border-gray-800/60 shrink-0 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+          <div className="p-4 border-b border-[var(--border-hairline)] shrink-0 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
               Documents ({uniqueSyllabi.length})
             </span>
             <button
               type="button"
               onClick={() => setIsSidebarOpen(false)}
-              className="p-1 text-gray-400 hover:text-gray-200 md:hidden rounded-lg"
+              className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] md:hidden rounded-lg"
               aria-label="Dismiss sidebar drawer"
             >
               <X className="w-4 h-4" />
@@ -233,13 +362,13 @@ export const App: React.FC = () => {
           {/* Independently Scrollable Document List */}
           <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
             {uniqueSyllabi.length === 0 ? (
-              <div className="p-4 text-center border border-dashed border-gray-800 rounded-xl space-y-2">
-                <BookOpen className="w-6 h-6 text-gray-600 mx-auto" />
-                <p className="text-xs text-gray-400">No syllabus loaded yet.</p>
+              <div className="p-4 text-center border border-dashed border-[var(--border-subtle)] rounded-xl space-y-2">
+                <BookOpen className="w-6 h-6 text-[var(--text-muted)] mx-auto" />
+                <p className="text-xs text-[var(--text-secondary)]">No syllabus loaded yet.</p>
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(true)}
-                  className="text-xs font-medium text-emerald-400 hover:underline"
+                  className="text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                 >
                   Upload your first syllabus
                 </button>
@@ -247,7 +376,6 @@ export const App: React.FC = () => {
             ) : (
               uniqueSyllabi.map((s) => {
                 const isSelected = activeSyllabus?.syllabus.id === s.id;
-                // Use source_filename as primary label, fall back to title
                 const displayFileName = s.source_filename || s.title;
 
                 return (
@@ -257,20 +385,20 @@ export const App: React.FC = () => {
                     onClick={() => selectSyllabus(s.id)}
                     className={`p-3 rounded-xl border cursor-pointer transition-all ${
                       isSelected
-                        ? 'border-emerald-500/60 bg-emerald-950/20 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
-                        : 'border-gray-800/60 hover:border-gray-700 bg-gray-900/50 hover:bg-gray-800/50'
+                        ? 'border-emerald-500/60 bg-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                        : 'border-[var(--border-hairline)] hover:border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/50 hover:bg-[var(--bg-surface-hover)]'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <h4
-                          className="text-sm font-medium text-gray-200 truncate"
+                          className="text-sm font-medium text-[var(--text-primary)] truncate"
                           title={displayFileName}
                         >
                           {displayFileName}
                         </h4>
                         {s.title && s.title !== displayFileName && (
-                          <p className="text-[11px] text-gray-400 truncate mt-0.5" title={s.title}>
+                          <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5" title={s.title}>
                             {s.title}
                           </p>
                         )}
@@ -281,7 +409,7 @@ export const App: React.FC = () => {
                           e.stopPropagation();
                           setDeletingId(s.id);
                         }}
-                        className="text-gray-500 hover:text-red-400 p-1 rounded transition-colors shrink-0"
+                        className="text-[var(--text-muted)] hover:text-red-500 p-1 rounded transition-colors shrink-0"
                         title={`Delete ${displayFileName}`}
                         aria-label={`Delete ${displayFileName}`}
                       >
@@ -290,11 +418,11 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="mt-2.5 space-y-1">
-                      <div className="flex justify-between text-[11px] text-gray-400">
-                        <span>
+                      <div className="flex justify-between text-[11px] text-[var(--text-secondary)]">
+                        <span className="tabular-nums">
                           {s.progress.completed_leaves} / {s.progress.total_leaves} topics
                         </span>
-                        <span>{s.progress.progress_percent}%</span>
+                        <span className="tabular-nums font-medium">{s.progress.progress_percent}%</span>
                       </div>
                       <ProgressBar progress={s.progress} size="sm" showLabel={false} />
                     </div>
@@ -305,25 +433,25 @@ export const App: React.FC = () => {
           </div>
 
           {/* Sidebar Footer */}
-          <div className="p-3 border-t border-gray-800 text-[11px] text-gray-500 space-y-1 shrink-0">
+          <div className="p-3 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] space-y-1 shrink-0">
             <p>Verifiable Local-First Architecture</p>
-            <p>SQLite WAL &bull; Ollama Local LLM &bull; Docling</p>
+            <p>SQLite WAL &bull; Ollama Local LLM &bull; Radix UI</p>
           </div>
         </aside>
 
         {/* Content Area with Independent Scrolling */}
-        <main className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8 space-y-6 custom-scrollbar">
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8 space-y-6 custom-scrollbar bg-[var(--bg-canvas)]">
           {error && <ErrorMessage message={error} onDismiss={clearError} />}
 
           {isLoading ? (
-            <div className="h-64 flex items-center justify-center text-gray-400 gap-2">
-              <RefreshCw className="w-5 h-5 animate-spin text-emerald-400" />
+            <div className="h-64 flex items-center justify-center text-[var(--text-muted)] gap-2">
+              <RefreshCw className="w-5 h-5 animate-spin text-emerald-500" />
               <span>Loading syllabus hierarchy...</span>
             </div>
           ) : activeSyllabus ? (
             <div className="max-w-5xl mx-auto space-y-6">
               {/* Syllabus Header Card: Document Heading is Outside Academic Checkbox Hierarchy */}
-              <div className="p-6 bg-gray-900/80 border border-gray-800 rounded-2xl shadow-xl space-y-4">
+              <div className="p-5 sm:p-6 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl shadow-xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     {isEditingTitle ? (
@@ -333,50 +461,50 @@ export const App: React.FC = () => {
                           value={editedTitle}
                           onChange={(e) => setEditedTitle(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && saveRename()}
-                          className="px-3 py-1 text-lg font-bold bg-gray-800 border border-emerald-500 rounded-lg text-gray-100 focus:outline-hidden w-full"
+                          className="px-3 py-1 text-base sm:text-lg font-bold bg-[var(--bg-surface-elevated)] border border-emerald-500 rounded-lg text-[var(--text-primary)] focus:outline-hidden w-full"
                           autoFocus
                         />
                         <button
                           type="button"
                           onClick={saveRename}
-                          className="px-3 py-1 text-xs font-semibold bg-emerald-500 text-gray-950 rounded-lg hover:bg-emerald-400"
+                          className="px-3 py-1 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 cursor-pointer"
                         >
                           Save
                         </button>
                         <button
                           type="button"
                           onClick={() => setIsEditingTitle(false)}
-                          className="px-3 py-1 text-xs text-gray-400 hover:text-gray-200"
+                          className="px-3 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                         >
                           Cancel
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <h2 className="text-xl font-bold text-gray-100 truncate">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <h2 className="text-lg sm:text-xl font-bold text-[var(--text-primary)] truncate">
                           {activeSyllabus.syllabus.source_filename || activeSyllabus.syllabus.title}
                         </h2>
                         {activeSyllabus.syllabus.source_filename &&
                           activeSyllabus.syllabus.title &&
                           activeSyllabus.syllabus.title !==
                             activeSyllabus.syllabus.source_filename && (
-                            <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                            <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
                               {activeSyllabus.syllabus.title}
                             </span>
                           )}
                         {activeSyllabus.syllabus.source_type === 'url' && (
                           <span
                             data-testid="web-source-badge"
-                            className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-teal-950 text-teal-300 border border-teal-800/60 font-medium"
+                            className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-300 border border-teal-500/20 font-medium"
                           >
-                            <Globe className="w-3 h-3 text-teal-400" />
+                            <Globe className="w-3 h-3 text-teal-500" />
                             <span>Web Source</span>
                             {activeSyllabus.syllabus.source_url && (
                               <a
                                 href={activeSyllabus.syllabus.source_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-teal-400 hover:text-teal-200 ml-0.5 inline-flex items-center"
+                                className="text-teal-500 hover:text-teal-600 ml-0.5 inline-flex items-center"
                                 title="Open original syllabus web page"
                                 aria-label="Open original syllabus web page"
                               >
@@ -388,7 +516,7 @@ export const App: React.FC = () => {
                         <button
                           type="button"
                           onClick={startRename}
-                          className="text-gray-400 hover:text-emerald-400 p-1 rounded-lg hover:bg-gray-800 transition-colors"
+                          className="text-[var(--text-muted)] hover:text-emerald-500 p-1 rounded-lg hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
                           title="Rename syllabus"
                           aria-label="Rename syllabus"
                         >
@@ -396,44 +524,79 @@ export const App: React.FC = () => {
                         </button>
                       </div>
                     )}
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
                       File: {activeSyllabus.syllabus.source_filename} &bull; Schema v
                       {activeSyllabus.syllabus.schema_version}
                     </p>
                   </div>
 
-                  {/* Actions */}
+                  {/* Actions for Desktop and Mobile */}
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                    <ExportMenu
-                      syllabusId={activeSyllabus.syllabus.id}
-                      syllabusTitle={activeSyllabus.syllabus.title}
-                      onRestoreSuccess={(newId) => {
-                        selectSyllabus(newId);
-                        refreshList();
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => openElectiveModal(activeSyllabus.syllabus.id)}
-                      className="px-3 py-1.5 text-xs text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/50 border border-indigo-900/60 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
-                      title="Manage elective course enrollment"
-                    >
-                      <GraduationCap className="w-3.5 h-3.5" />
-                      <span>Configure Electives</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeletingId(activeSyllabus.syllabus.id)}
-                      className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-950/50 border border-red-900/60 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete Document</span>
-                    </button>
+                    {/* Desktop actions: inline */}
+                    <div className="hidden sm:flex items-center gap-2">
+                      <ExportMenu
+                        syllabusId={activeSyllabus.syllabus.id}
+                        syllabusTitle={activeSyllabus.syllabus.title}
+                        onRestoreSuccess={(newId) => {
+                          selectSyllabus(newId);
+                          refreshList();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => openElectiveModal(activeSyllabus.syllabus.id)}
+                        className="px-3 py-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 border border-indigo-500/30 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                        title="Manage elective course enrollment"
+                      >
+                        <GraduationCap className="w-3.5 h-3.5" />
+                        <span>Configure Electives</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingId(activeSyllabus.syllabus.id)}
+                        className="px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-500/10 border border-red-500/30 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Document</span>
+                      </button>
+                    </div>
+
+                    {/* Mobile responsive: compact action buttons */}
+                    <div className="flex sm:hidden items-center gap-2 w-full justify-between pt-1">
+                      <ExportMenu
+                        syllabusId={activeSyllabus.syllabus.id}
+                        syllabusTitle={activeSyllabus.syllabus.title}
+                        onRestoreSuccess={(newId) => {
+                          selectSyllabus(newId);
+                          refreshList();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => openElectiveModal(activeSyllabus.syllabus.id)}
+                        className="p-2 text-indigo-500 hover:bg-indigo-500/10 border border-indigo-500/30 rounded-xl transition-colors flex items-center gap-1 text-xs"
+                        title="Configure Electives"
+                        aria-label="Configure Electives"
+                      >
+                        <GraduationCap className="w-4 h-4" />
+                        <span className="text-[11px]">Electives</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingId(activeSyllabus.syllabus.id)}
+                        className="p-2 text-red-500 hover:bg-red-500/10 border border-red-500/30 rounded-xl transition-colors flex items-center gap-1 text-xs"
+                        title="Delete Document"
+                        aria-label="Delete Document"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span className="text-[11px]">Delete</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 {/* Global Progress Bar */}
-                <div className="pt-2 border-t border-gray-800/80">
+                <div className="pt-2 border-t border-[var(--border-hairline)]">
                   <ProgressBar
                     progress={activeSyllabus.progress}
                     size="lg"
@@ -444,9 +607,9 @@ export const App: React.FC = () => {
 
                 {/* Warnings */}
                 {activeSyllabus.warnings && activeSyllabus.warnings.length > 0 && (
-                  <div className="p-3 bg-amber-950/30 border border-amber-900/40 rounded-xl text-xs text-amber-300 space-y-1">
-                    <p className="font-semibold text-amber-400">Provenance & Extraction Notes:</p>
-                    <ul className="list-disc list-inside space-y-0.5 text-amber-200/80">
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-600 dark:text-amber-300 space-y-1">
+                    <p className="font-semibold text-amber-600 dark:text-amber-400">Provenance & Extraction Notes:</p>
+                    <ul className="list-disc list-inside space-y-0.5 text-amber-700/80 dark:text-amber-200/80">
                       {activeSyllabus.warnings.map((w, idx) => (
                         <li key={idx}>{w}</li>
                       ))}
@@ -470,6 +633,8 @@ export const App: React.FC = () => {
                 resourceCounts={resourceCounts}
                 onOpenNote={openNoteDrawer}
                 onOpenResource={openResourceModal}
+                targetNodeId={targetNavNodeId}
+                onTargetNodeNavigated={() => setTargetNavNodeId(null)}
               />
             </div>
           ) : (
@@ -483,17 +648,36 @@ export const App: React.FC = () => {
         </main>
       </div>
 
+      {/* Global Command Palette */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        syllabus={activeSyllabus?.syllabus || null}
+        completedLeafIds={activeSyllabus?.completed_leaf_ids || []}
+        pacingData={pacingData}
+        notes={syllabusNotes}
+        resources={syllabusResources}
+        currentTheme={theme}
+        onNavigateToNode={handleDeepNavigate}
+        onOpenNote={openNoteDrawer}
+        onOpenResource={openResourceModal}
+        onOpenUpload={() => setShowUploadModal(true)}
+        onOpenElectives={() => activeSyllabus && openElectiveModal(activeSyllabus.syllabus.id)}
+        onExportMarkdown={handleQuickExportMarkdown}
+        onSetTheme={setTheme}
+      />
+
       {/* Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-gray-100">Import Syllabus Document</h3>
+              <h3 className="text-base font-bold text-[var(--text-primary)]">Import Syllabus Document</h3>
               <button
                 type="button"
                 onClick={() => !isUploading && setShowUploadModal(false)}
                 disabled={isUploading}
-                className="text-gray-400 hover:text-gray-200 p-1 rounded-lg"
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 rounded-lg cursor-pointer"
               >
                 &times;
               </button>
@@ -518,7 +702,7 @@ export const App: React.FC = () => {
                 type="button"
                 onClick={() => setShowUploadModal(false)}
                 disabled={isUploading}
-                className="px-4 py-1.5 text-xs text-gray-400 hover:text-gray-200"
+                className="px-4 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
               >
                 Cancel
               </button>

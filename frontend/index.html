@@ -4,7 +4,31 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>Syllabus Tracker — Hierarchical Curriculum & Progress Engine</title>
+    <!-- First-paint theme initialization to prevent unstyled flash -->
+    <script>
+      (function () {
+        try {
+          var key = 'syllabus_tracker_theme';
+          var stored = localStorage.getItem(key);
+          var preference = stored === 'dark' || stored === 'light' || stored === 'system' ? stored : 'system';
+          var resolved = preference;
+          if (preference === 'system') {
+            resolved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = resolved;
+          if (resolved === 'dark') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.classList.remove('light');
+          } else {
+            document.documentElement.classList.add('light');
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

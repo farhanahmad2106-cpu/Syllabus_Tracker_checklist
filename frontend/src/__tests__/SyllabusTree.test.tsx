@@ -439,5 +439,238 @@ describe('SyllabusTree', () => {
 
     expect(handleClear).toHaveBeenCalledWith('subj_cs101');
   });
+
+  describe('Phase 10: Contact-Hour Badge Hygiene', () => {
+    it('renders contact-hour badge for positive finite numbers and NEVER renders "Contact Hours Not Specified"', () => {
+      const hygieneSyllabus: HierarchicalSyllabus = {
+        ...canonical5TierSyllabus,
+        id: 'syl_hygiene',
+        years: [
+          {
+            id: 'yr_h',
+            title: 'Year H',
+            semesters: [
+              {
+                id: 'sem_h',
+                title: 'Semester H',
+                subjects: [
+                  {
+                    id: 'subj_h',
+                    title: 'Hygiene Subject',
+                    is_enrolled: true,
+                    modules: [
+                      {
+                        id: 'mod_pos_int',
+                        title: 'Module 3 Hrs',
+                        contact_hours: 3,
+                        topics: [],
+                      },
+                      {
+                        id: 'mod_pos_float',
+                        title: 'Module 1.5 Hrs',
+                        contact_hours: 1.5,
+                        topics: [],
+                      },
+                      {
+                        id: 'mod_zero',
+                        title: 'Module 0 Hrs',
+                        contact_hours: 0,
+                        topics: [],
+                      },
+                      {
+                        id: 'mod_null',
+                        title: 'Module Null Hrs',
+                        contact_hours: null,
+                        topics: [],
+                      },
+                      {
+                        id: 'mod_undefined',
+                        title: 'Module Undefined Hrs',
+                        contact_hours: undefined,
+                        topics: [],
+                      },
+                      {
+                        id: 'mod_negative',
+                        title: 'Module Negative Hrs',
+                        contact_hours: -1,
+                        topics: [],
+                      },
+                      {
+                        id: 'mod_nan',
+                        title: 'Module NaN Hrs',
+                        contact_hours: NaN,
+                        topics: [],
+                      },
+                      {
+                        id: 'mod_inf',
+                        title: 'Module Infinity Hrs',
+                        contact_hours: Infinity,
+                        topics: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      render(
+        <SyllabusTree
+          syllabus={hygieneSyllabus}
+          completedLeafIds={[]}
+          nodeProgress={{}}
+          onToggleLeaf={vi.fn()}
+          onToggleBranch={vi.fn()}
+        />
+      );
+
+      // Positive numbers MUST show badge
+      expect(screen.getByTestId('badge-contact-hours-mod_pos_int')).toHaveTextContent('3 Contact Hrs');
+      expect(screen.getByTestId('badge-contact-hours-mod_pos_float')).toHaveTextContent('1.5 Contact Hrs');
+
+      // Zero, null, undefined, negative, NaN, Infinity MUST NOT show badge
+      expect(screen.queryByTestId('badge-contact-hours-mod_zero')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('badge-contact-hours-mod_null')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('badge-contact-hours-mod_undefined')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('badge-contact-hours-mod_negative')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('badge-contact-hours-mod_nan')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('badge-contact-hours-mod_inf')).not.toBeInTheDocument();
+
+      // "Contact Hours Not Specified" is completely eliminated from UI
+      expect(screen.queryByText(/Contact Hours Not Specified/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Phase 10: Needs Review Indicators', () => {
+    it('renders Needs Review badge for low-confidence nodes and hides it for verified nodes', () => {
+      const reviewSyllabus: HierarchicalSyllabus = {
+        ...canonical5TierSyllabus,
+        id: 'syl_review',
+        years: [
+          {
+            id: 'yr_rev',
+            title: 'Year Review',
+            semesters: [
+              {
+                id: 'sem_rev',
+                title: 'Semester Review',
+                subjects: [
+                  {
+                    id: 'subj_flagged',
+                    title: 'Flagged Subject',
+                    is_enrolled: true,
+                    evidence_status: 'needs_review' as any,
+                    modules: [
+                      {
+                        id: 'mod_flagged',
+                        title: 'Flagged Module',
+                        grounding_status: 'needs_review' as any,
+                        topics: [
+                          {
+                            id: 'top_flagged',
+                            title: 'Flagged Topic',
+                            source_text: 'Snippet',
+                            evidence_status: 'needs_review',
+                          },
+                          {
+                            id: 'top_verified',
+                            title: 'Verified Topic',
+                            source_text: 'Verified Snippet',
+                            evidence_status: 'verified',
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      render(
+        <SyllabusTree
+          syllabus={reviewSyllabus}
+          completedLeafIds={[]}
+          nodeProgress={{}}
+          onToggleLeaf={vi.fn()}
+          onToggleBranch={vi.fn()}
+        />
+      );
+
+      // Flagged subject, module, and topic render Needs Review badge
+      expect(screen.getByTestId('badge-needs-review-subj_flagged')).toBeInTheDocument();
+      expect(screen.getByTestId('badge-needs-review-mod_flagged')).toBeInTheDocument();
+      expect(screen.getByTestId('badge-needs-review-top_flagged')).toBeInTheDocument();
+
+      // Verified topic does NOT render Needs Review badge
+      expect(screen.queryByTestId('badge-needs-review-top_verified')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Phase 10: Deep Navigation and Auto-Expansion', () => {
+    it('auto-expands collapsed lab course and highlights target leaf when targetNodeId is supplied', () => {
+      const labSyllabus: HierarchicalSyllabus = {
+        ...canonical5TierSyllabus,
+        id: 'syl_lab_nav',
+        years: [
+          {
+            id: 'yr_lab',
+            title: 'Year Lab',
+            semesters: [
+              {
+                id: 'sem_lab',
+                title: 'Semester Lab',
+                subjects: [
+                  {
+                    id: 'subj_lab_collapsed',
+                    title: 'Default Collapsed Lab Course',
+                    is_lab: true,
+                    is_enrolled: true,
+                    modules: [
+                      {
+                        id: 'mod_lab_nested',
+                        title: 'Nested Lab Module',
+                        topics: [
+                          {
+                            id: 'top_target_deep',
+                            title: 'Deep Target Topic',
+                            source_text: 'Lab manual',
+                            evidence_status: 'verified',
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const handleNavigated = vi.fn();
+
+      render(
+        <SyllabusTree
+          syllabus={labSyllabus}
+          completedLeafIds={[]}
+          nodeProgress={{}}
+          targetNodeId="top_target_deep"
+          onTargetNodeNavigated={handleNavigated}
+          onToggleLeaf={vi.fn()}
+          onToggleBranch={vi.fn()}
+        />
+      );
+
+      // Deep target topic becomes visible and has data-node-id
+      const targetElement = screen.getByTestId('topic-row-top_target_deep');
+      expect(targetElement).toBeInTheDocument();
+      expect(targetElement).toHaveAttribute('data-node-id', 'top_target_deep');
+    });
+  });
 });
 

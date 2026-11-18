@@ -1,9 +1,8 @@
-import React, { useState, useId } from 'react';
+import React, { useState, useId, useEffect, useRef } from 'react';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import {
   AlertCircle,
   BookOpen,
-  Calendar,
   Check,
   ChevronDown,
   FileText,
@@ -27,7 +26,7 @@ import { PacingBadge } from './PacingBadge';
 import { ProgressBar } from './ProgressBar';
 import { SourceEvidence } from './SourceEvidence';
 
-interface SyllabusTreeProps {
+export interface SyllabusTreeProps {
   syllabus: HierarchicalSyllabus;
   completedLeafIds: string[];
   nodeProgress: Record<string, ProgressSummary>;
@@ -41,10 +40,12 @@ interface SyllabusTreeProps {
   resourceCounts?: Record<string, number>;
   onOpenNote?: (leafId: string, leafTitle: string) => void;
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
+  targetNodeId?: string | null;
+  onTargetNodeNavigated?: (nodeId: string) => void;
 }
 
 // Helper to normalize subjects from either 5-level canonical subjects or legacy 4-level topics
-function getSemesterSubjects(sem: Semester): Subject[] {
+export function getSemesterSubjects(sem: Semester): Subject[] {
   if (sem.subjects && sem.subjects.length > 0) {
     return sem.subjects;
   }
@@ -71,7 +72,7 @@ function getSemesterSubjects(sem: Semester): Subject[] {
 }
 
 // Helper to check if a subject is enrolled
-function isSubjectEnrolled(subj: Subject): boolean {
+export function isSubjectEnrolled(subj: Subject): boolean {
   if (subj.enrollment_status === 'excluded' || subj.enrollment_status === 'pending') {
     return false;
   }
@@ -82,12 +83,12 @@ function isSubjectEnrolled(subj: Subject): boolean {
 }
 
 // Helper to collect all descendant topic leaf IDs for a module
-function getModuleLeaves(mod: Module): string[] {
+export function getModuleLeaves(mod: Module): string[] {
   return (mod.topics || []).map((t) => t.id);
 }
 
 // Helper to collect all descendant topic leaf IDs for a subject (only if enrolled)
-function getSubjectLeaves(subj: Subject, enrolledOnly: boolean = true): string[] {
+export function getSubjectLeaves(subj: Subject, enrolledOnly: boolean = true): string[] {
   if (enrolledOnly && !isSubjectEnrolled(subj)) {
     return [];
   }
@@ -95,13 +96,55 @@ function getSubjectLeaves(subj: Subject, enrolledOnly: boolean = true): string[]
 }
 
 // Helper to collect all descendant topic leaf IDs for a semester
-function getSemesterLeaves(sem: Semester): string[] {
+export function getSemesterLeaves(sem: Semester): string[] {
   return getSemesterSubjects(sem).flatMap((s) => getSubjectLeaves(s, true));
 }
 
 // Helper to collect all descendant topic leaf IDs for a year
-function getYearLeaves(year: AcademicYear): string[] {
+export function getYearLeaves(year: AcademicYear): string[] {
   return (year.semesters || []).flatMap(getSemesterLeaves);
+}
+
+export function computeLocalProgress(
+  leaves: string[],
+  completedSet: Set<string>
+): ProgressSummary {
+  const total = leaves.length;
+  const completed = leaves.filter((id) => completedSet.has(id)).length;
+  const percent = total > 0 ? Math.round((completed / total) * 1000) / 10 : 0.0;
+  return {
+    total_leaves: total,
+    completed_leaves: completed,
+    progress_percent: percent,
+  };
+}
+
+/**
+ * Traverses the 5-tier syllabus hierarchy to locate a target node ID and resolve its complete ancestor chain.
+ */
+export function findAncestorNodeIds(syllabus: HierarchicalSyllabus, targetId: string): string[] {
+  const ancestors: string[] = [];
+
+  for (const yr of syllabus.years) {
+    if (yr.id === targetId) return [];
+    for (const sem of yr.semesters || []) {
+      if (sem.id === targetId) return [yr.id];
+      const subjects = getSemesterSubjects(sem);
+      for (const subj of subjects) {
+        if (subj.id === targetId) return [yr.id, sem.id];
+        for (const mod of subj.modules || []) {
+          if (mod.id === targetId) return [yr.id, sem.id, subj.id];
+          for (const top of mod.topics || []) {
+            if (top.id === targetId) {
+              return [yr.id, sem.id, subj.id, mod.id];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return ancestors;
 }
 
 export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
@@ -118,6 +161,8 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
   resourceCounts,
   onOpenNote,
   onOpenResource,
+  targetNodeId,
+  onTargetNodeNavigated,
 }) => {
   const completedSet = new Set(completedLeafIds);
 
@@ -141,6 +186,9 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
     return initial;
   });
 
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const toggleExpand = (id: string) => {
     setExpandedNodes((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -152,6 +200,58 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
     if (completedCount === descendantLeaves.length) return true;
     return 'indeterminate';
   };
+
+  // Deep Hierarchical Navigation & Auto-expansion
+  useEffect(() => {
+    if (!targetNodeId) return;
+
+    // 1. Resolve ancestor chain
+    const ancestors = findAncestorNodeIds(syllabus, targetNodeId);
+
+    // 2. Expand all necessary ancestor containers + target container if relevant
+    setExpandedNodes((prev) => {
+      const next = { ...prev };
+      ancestors.forEach((ancId) => {
+        next[ancId] = true;
+      });
+      // Also ensure target container itself is expanded if it's an ancestor-level node
+      next[targetNodeId] = true;
+      return next;
+    });
+
+    // 3. Set temporary visual highlight
+    setHighlightedNodeId(targetNodeId);
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedNodeId(null);
+    }, 2200);
+
+    // 4. Scroll into view and focus post-render
+    const frameId = requestAnimationFrame(() => {
+      const selector = `[data-node-id="${CSS.escape(targetNodeId)}"]`;
+      const targetEl = document.querySelector<HTMLElement>(selector);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Make focusable if not naturally focusable and focus
+        if (!targetEl.getAttribute('tabIndex')) {
+          targetEl.setAttribute('tabindex', '-1');
+        }
+        targetEl.focus({ preventScroll: true });
+        if (onTargetNodeNavigated) {
+          onTargetNodeNavigated(targetNodeId);
+        }
+      }
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, [targetNodeId, syllabus, onTargetNodeNavigated]);
 
   return (
     <div className="space-y-4" data-testid="syllabus-tree-root">
@@ -174,6 +274,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
             completedSet={completedSet}
             nodeProgress={nodeProgress}
             expandedNodes={expandedNodes}
+            highlightedNodeId={highlightedNodeId}
             onToggleExpand={toggleExpand}
             onToggleLeaf={onToggleLeaf}
             onToggleBranch={onToggleBranch}
@@ -192,20 +293,6 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
     </div>
   );
 };
-
-function computeLocalProgress(
-  leaves: string[],
-  completedSet: Set<string>
-): ProgressSummary {
-  const total = leaves.length;
-  const completed = leaves.filter((id) => completedSet.has(id)).length;
-  const percent = total > 0 ? Math.round((completed / total) * 1000) / 10 : 0.0;
-  return {
-    total_leaves: total,
-    completed_leaves: completed,
-    progress_percent: percent,
-  };
-}
 
 /* ========================================================================= */
 /* Animated Collapse Wrapper                                                 */
@@ -248,6 +335,7 @@ interface YearCardProps {
   onSetDeadline?: (payload: SetTargetDatePayload) => Promise<void>;
   onClearDeadline?: (nodeId: string) => Promise<void>;
   expandedNodes: Record<string, boolean>;
+  highlightedNodeId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
@@ -271,6 +359,7 @@ const YearCard: React.FC<YearCardProps> = ({
   onSetDeadline,
   onClearDeadline,
   expandedNodes,
+  highlightedNodeId,
   onToggleExpand,
   onToggleLeaf,
   onToggleBranch,
@@ -282,14 +371,20 @@ const YearCard: React.FC<YearCardProps> = ({
   onOpenResource,
 }) => {
   const contentId = `year-content-${year.id}`;
+  const isTarget = highlightedNodeId === year.id;
 
   return (
     <div
+      data-node-id={year.id}
       data-testid={`year-card-${year.id}`}
-      className="border border-gray-800 bg-gray-900/60 rounded-2xl shadow-sm overflow-hidden transition-all duration-200"
+      className={`border rounded-2xl shadow-xs overflow-hidden transition-all duration-200 ${
+        isTarget
+          ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
+          : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'
+      }`}
     >
       {/* Year Header */}
-      <div className="flex items-center justify-between p-4 bg-gray-900/90 border-b border-gray-800/80 transition-colors">
+      <div className="flex items-center justify-between p-4 bg-[var(--bg-surface-elevated)] border-b border-[var(--border-subtle)] transition-colors">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -297,7 +392,7 @@ const YearCard: React.FC<YearCardProps> = ({
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${year.title}`}
-            className="p-1 rounded-md hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
           >
             <ChevronDown
               className={`w-4 h-4 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -314,8 +409,10 @@ const YearCard: React.FC<YearCardProps> = ({
           />
 
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-sm font-semibold text-gray-100">{year.title}</h3>
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+              Tier 1 &bull;
+            </span>
+            <h3 className="text-base font-bold text-[var(--text-primary)]">{year.title}</h3>
           </div>
         </div>
 
@@ -335,14 +432,15 @@ const YearCard: React.FC<YearCardProps> = ({
               sem={sem}
               completedSet={completedSet}
               nodeProgress={nodeProgress}
+              pacingData={pacingData}
+              onSetDeadline={onSetDeadline}
+              onClearDeadline={onClearDeadline}
               expandedNodes={expandedNodes}
+              highlightedNodeId={highlightedNodeId}
               onToggleExpand={onToggleExpand}
               onToggleLeaf={onToggleLeaf}
               onToggleBranch={onToggleBranch}
               getBranchState={getBranchState}
-              pacingData={pacingData}
-              onSetDeadline={onSetDeadline}
-              onClearDeadline={onClearDeadline}
               isMutating={isMutating}
               noteLeafIds={noteLeafIds}
               resourceCounts={resourceCounts}
@@ -367,6 +465,7 @@ interface SemesterCardProps {
   onSetDeadline?: (payload: SetTargetDatePayload) => Promise<void>;
   onClearDeadline?: (nodeId: string) => Promise<void>;
   expandedNodes: Record<string, boolean>;
+  highlightedNodeId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
@@ -386,6 +485,7 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
   onSetDeadline,
   onClearDeadline,
   expandedNodes,
+  highlightedNodeId,
   onToggleExpand,
   onToggleLeaf,
   onToggleBranch,
@@ -401,24 +501,30 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
   const isExpanded = !!expandedNodes[sem.id];
   const prog =
     nodeProgress[sem.id] || computeLocalProgress(semLeaves, completedSet);
-  const subjects = getSemesterSubjects(sem);
   const contentId = `semester-content-${sem.id}`;
+  const subjects = getSemesterSubjects(sem);
+  const isTarget = highlightedNodeId === sem.id;
 
   return (
     <div
+      data-node-id={sem.id}
       data-testid={`semester-card-${sem.id}`}
-      className="border border-gray-800/90 bg-gray-950/40 rounded-xl overflow-hidden transition-all"
+      className={`border rounded-xl overflow-hidden transition-all duration-200 ${
+        isTarget
+          ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
+          : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'
+      }`}
     >
       {/* Semester Header */}
-      <div className="flex items-center justify-between p-3.5 bg-gray-900/50 hover:bg-gray-900/80 border-b border-gray-800/60 transition-colors">
-        <div className="flex items-center gap-2.5">
+      <div className="flex items-center justify-between p-3.5 bg-[var(--bg-surface-elevated)]/80 border-b border-[var(--border-subtle)] transition-colors">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <button
             type="button"
             onClick={() => onToggleExpand(sem.id)}
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${sem.title}`}
-            className="p-1 rounded-md hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-teal-500/50"
+            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
           >
             <ChevronDown
               className={`w-4 h-4 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -434,24 +540,25 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
             ariaLabel={`Select all topics in ${sem.title}`}
           />
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <Layers className="w-4 h-4 text-teal-400" />
-            <h4 className="text-sm font-medium text-gray-200">{sem.title}</h4>
-
-            {onSetDeadline && onClearDeadline && (
-              <PacingBadge
-                metrics={pacingData?.[sem.id]}
-                nodeId={sem.id}
-                nodeType="semester"
-                onSetDeadline={onSetDeadline}
-                onClearDeadline={onClearDeadline}
-              />
-            )}
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <h4 className="text-sm font-bold text-[var(--text-primary)]">{sem.title}</h4>
           </div>
+
+          {/* Option-A: Semester Pacing Badge */}
+          {onSetDeadline && onClearDeadline && (
+            <PacingBadge
+              metrics={pacingData?.[sem.id]}
+              nodeId={sem.id}
+              nodeType="semester"
+              onSetDeadline={onSetDeadline}
+              onClearDeadline={onClearDeadline}
+            />
+          )}
         </div>
 
         {prog && (
-          <div className="w-32 hidden sm:block shrink-0">
+          <div className="w-32 hidden sm:block">
             <ProgressBar progress={prog} size="sm" showLabel={true} />
           </div>
         )}
@@ -470,6 +577,7 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
               onSetDeadline={onSetDeadline}
               onClearDeadline={onClearDeadline}
               expandedNodes={expandedNodes}
+              highlightedNodeId={highlightedNodeId}
               onToggleExpand={onToggleExpand}
               onToggleLeaf={onToggleLeaf}
               onToggleBranch={onToggleBranch}
@@ -498,6 +606,7 @@ interface SubjectCardProps {
   onSetDeadline?: (payload: SetTargetDatePayload) => Promise<void>;
   onClearDeadline?: (nodeId: string) => Promise<void>;
   expandedNodes: Record<string, boolean>;
+  highlightedNodeId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
@@ -517,6 +626,7 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   onSetDeadline,
   onClearDeadline,
   expandedNodes,
+  highlightedNodeId,
   onToggleExpand,
   onToggleLeaf,
   onToggleBranch,
@@ -534,26 +644,35 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   const prog =
     nodeProgress[subj.id] || computeLocalProgress(subjLeaves, completedSet);
   const contentId = `subject-content-${subj.id}`;
+  const isTarget = highlightedNodeId === subj.id;
+
+  const needsReview = Boolean(
+    (subj as unknown as { evidence_status?: string }).evidence_status === 'needs_review' ||
+    (subj as unknown as { grounding_status?: string }).grounding_status === 'needs_review'
+  );
 
   return (
     <div
+      data-node-id={subj.id}
       data-testid={`subject-card-${subj.id}`}
-      className={`border rounded-xl overflow-hidden transition-all ${
-        isEnrolled
-          ? 'border-gray-800/80 bg-gray-900/30'
-          : 'border-gray-800/40 bg-gray-950/20 opacity-75'
+      className={`border rounded-xl overflow-hidden transition-all duration-200 ${
+        isTarget
+          ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
+          : isEnrolled
+          ? 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'
+          : 'border-[var(--border-hairline)] bg-[var(--bg-canvas)]/60 opacity-75'
       }`}
     >
       {/* Subject Header */}
-      <div className="flex items-center justify-between p-3 bg-gray-900/40 hover:bg-gray-800/50 border-b border-gray-800/50 transition-colors">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center justify-between p-3 bg-[var(--bg-surface-elevated)]/60 hover:bg-[var(--bg-surface-hover)] border-b border-[var(--border-subtle)] transition-colors">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           <button
             type="button"
             onClick={() => onToggleExpand(subj.id)}
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${subj.title}`}
-            className="p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-blue-500/50"
+            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-blue-500/50"
           >
             <ChevronDown
               className={`w-3.5 h-3.5 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -569,20 +688,20 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
             ariaLabel={`Select all topics in ${subj.title}`}
           />
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <BookOpen className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 shrink-0" />
             {subj.code && (
-              <span className="px-1.5 py-0.5 text-[11px] font-mono font-medium rounded bg-blue-950/80 text-blue-300 border border-blue-800/50">
+              <span className="px-1.5 py-0.5 text-[11px] font-mono tabular-nums font-medium rounded bg-blue-500/10 text-blue-600 dark:text-blue-300 border border-blue-500/20 shrink-0">
                 {subj.code}
               </span>
             )}
-            <h5 className="text-xs font-semibold text-gray-200">{subj.title}</h5>
+            <h5 className="text-xs font-semibold text-[var(--text-primary)] truncate">{subj.title}</h5>
 
             {/* Badges */}
             {subj.is_lab && (
               <span
                 data-testid={`badge-lab-${subj.id}`}
-                className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-950/80 text-purple-300 border border-purple-800/50"
+                className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-purple-500/10 text-purple-600 dark:text-purple-300 border border-purple-500/20 shrink-0"
               >
                 Lab Course
               </span>
@@ -591,15 +710,27 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
             {subj.is_elective && (
               <span
                 data-testid={`badge-elective-${subj.id}`}
-                className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/50"
+                className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 shrink-0"
               >
                 {subj.elective_group || 'Elective'}
               </span>
             )}
 
             {!isEnrolled && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-800 text-gray-400 border border-gray-700">
+              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--bg-surface-hover)] text-[var(--text-muted)] border border-[var(--border-subtle)] shrink-0">
                 Excluded
+              </span>
+            )}
+
+            {needsReview && (
+              <span
+                data-testid={`badge-needs-review-${subj.id}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 shrink-0"
+                title="This heading or extracted snippet has low structural confidence and may require manual verification."
+                role="status"
+              >
+                <AlertCircle className="w-2.5 h-2.5" />
+                <span>Needs Review</span>
               </span>
             )}
 
@@ -633,6 +764,7 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
               completedSet={completedSet}
               nodeProgress={nodeProgress}
               expandedNodes={expandedNodes}
+              highlightedNodeId={highlightedNodeId}
               onToggleExpand={onToggleExpand}
               onToggleLeaf={onToggleLeaf}
               onToggleBranch={onToggleBranch}
@@ -658,6 +790,7 @@ interface ModuleCardProps {
   completedSet: Set<string>;
   nodeProgress: Record<string, ProgressSummary>;
   expandedNodes: Record<string, boolean>;
+  highlightedNodeId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
   onToggleBranch: (nodeId: string, isCompleted: boolean) => void;
@@ -674,6 +807,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
   completedSet,
   nodeProgress,
   expandedNodes,
+  highlightedNodeId,
   onToggleExpand,
   onToggleLeaf,
   onToggleBranch,
@@ -690,29 +824,41 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
   const prog =
     nodeProgress[mod.id] || computeLocalProgress(modLeaves, completedSet);
   const contentId = `module-content-${mod.id}`;
+  const isTarget = highlightedNodeId === mod.id;
 
-  const contactHourBadgeText =
-    mod.contact_hours != null
-      ? `${mod.contact_hours} Contact Hrs`
-      : 'Contact Hours Not Specified';
+  // Contact hour badge hygiene: strictly conditional on positive finite number
+  const shouldRenderContactHours =
+    typeof mod.contact_hours === 'number' &&
+    Number.isFinite(mod.contact_hours) &&
+    mod.contact_hours > 0;
+
+  const needsReview = Boolean(
+    (mod as unknown as { evidence_status?: string }).evidence_status === 'needs_review' ||
+    (mod as unknown as { grounding_status?: string }).grounding_status === 'needs_review'
+  );
 
   const modResCount = resourceCounts?.[mod.id] || 0;
 
   return (
     <div
+      data-node-id={mod.id}
       data-testid={`module-card-${mod.id}`}
-      className="border border-gray-800/70 bg-gray-900/20 rounded-lg overflow-hidden transition-all"
+      className={`border rounded-lg overflow-hidden transition-all duration-200 ${
+        isTarget
+          ? 'ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)] highlight-target border-emerald-500/50'
+          : 'border-[var(--border-hairline)] bg-[var(--bg-surface-elevated)]/40'
+      }`}
     >
       {/* Module Header */}
-      <div className="flex items-center justify-between p-2.5 bg-gray-900/30 hover:bg-gray-800/40 border-b border-gray-800/40 transition-colors">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center justify-between p-2.5 bg-[var(--bg-surface-elevated)]/70 hover:bg-[var(--bg-surface-hover)] border-b border-[var(--border-hairline)] transition-colors">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           <button
             type="button"
             onClick={() => onToggleExpand(mod.id)}
             aria-expanded={isExpanded}
             aria-controls={contentId}
             aria-label={`Toggle ${mod.title}`}
-            className="p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
           >
             <ChevronDown
               className={`w-3.5 h-3.5 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
@@ -728,22 +874,36 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
             ariaLabel={`Select all topics in ${mod.title}`}
           />
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <Folder className="w-3.5 h-3.5 text-emerald-400/80" />
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <Folder className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400/80 shrink-0" />
             {mod.module_number && (
-              <span className="text-[11px] font-mono text-emerald-400 font-medium">
+              <span className="text-[11px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-medium shrink-0">
                 {mod.module_number}:
               </span>
             )}
-            <h6 className="text-xs font-semibold text-gray-200">{mod.title}</h6>
+            <h6 className="text-xs font-semibold text-[var(--text-primary)] truncate">{mod.title}</h6>
 
-            {/* Contact hours badge */}
-            <span
-              data-testid={`badge-contact-hours-${mod.id}`}
-              className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40"
-            >
-              {contactHourBadgeText}
-            </span>
+            {/* Contact hours badge: strictly rendered when positive finite number, NO negative placeholders */}
+            {shouldRenderContactHours && (
+              <span
+                data-testid={`badge-contact-hours-${mod.id}`}
+                className="px-1.5 py-0.5 text-[10px] font-mono tabular-nums rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/20 shrink-0"
+              >
+                {mod.contact_hours} Contact Hrs
+              </span>
+            )}
+
+            {needsReview && (
+              <span
+                data-testid={`badge-needs-review-${mod.id}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 shrink-0"
+                title="This heading or extracted snippet has low structural confidence and may require manual verification."
+                role="status"
+              >
+                <AlertCircle className="w-2.5 h-2.5" />
+                <span>Needs Review</span>
+              </span>
+            )}
 
             {/* Module Resources Button */}
             {onOpenResource && (
@@ -753,10 +913,10 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
                   e.stopPropagation();
                   onOpenResource(mod.id, 'module', mod.title);
                 }}
-                className={`px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 transition-colors ${
+                className={`px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                   modResCount > 0
-                    ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 hover:bg-indigo-900/80'
-                    : 'text-gray-400 hover:text-indigo-300 hover:bg-gray-800/60 border border-transparent'
+                    ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/20'
+                    : 'text-[var(--text-muted)] hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-[var(--bg-surface-hover)] border border-transparent'
                 }`}
                 title={modResCount > 0 ? `${modResCount} resource(s) attached` : 'Add module resources'}
                 aria-label={`Open resources for module ${mod.title}`}
@@ -774,7 +934,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
         </div>
 
         {prog && (
-          <div className="w-24 hidden sm:block">
+          <div className="w-24 hidden sm:block shrink-0">
             <ProgressBar progress={prog} size="sm" showLabel={true} />
           </div>
         )}
@@ -782,13 +942,14 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
 
       {/* Module Content: Topic Leaf Rows */}
       <CollapsibleWrapper isExpanded={isExpanded} contentId={contentId}>
-        <div className="divide-y divide-gray-800/50 bg-gray-950/20">
+        <div className="divide-y divide-[var(--border-hairline)] bg-[var(--bg-canvas)]/30">
           {(mod.topics || []).map((topic) => (
             <TopicLeafRow
               key={topic.id}
               topic={topic}
               isCompleted={completedSet.has(topic.id)}
               disabled={isMutating}
+              highlightedNodeId={highlightedNodeId}
               onToggleLeaf={onToggleLeaf}
               hasNote={noteLeafIds ? noteLeafIds.has(topic.id) : false}
               resourceCount={resourceCounts ? resourceCounts[topic.id] || 0 : 0}
@@ -809,6 +970,7 @@ interface TopicLeafRowProps {
   topic: Subtopic;
   isCompleted: boolean;
   disabled: boolean;
+  highlightedNodeId: string | null;
   onToggleLeaf: (leafId: string, isCompleted: boolean) => void;
   hasNote?: boolean;
   resourceCount?: number;
@@ -820,6 +982,7 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
   topic,
   isCompleted,
   disabled,
+  highlightedNodeId,
   onToggleLeaf,
   hasNote = false,
   resourceCount = 0,
@@ -827,13 +990,23 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
   onOpenResource,
 }) => {
   const checkboxId = useId();
-  const isVerified =
-    (topic.grounding_status || topic.evidence_status) === 'verified';
+  const isTarget = highlightedNodeId === topic.id;
+
+  const rawStatus = topic.grounding_status || topic.evidence_status;
+  const isNeedsReview =
+    rawStatus === 'needs_review' ||
+    rawStatus === 'review_required' ||
+    (rawStatus && rawStatus !== 'verified');
 
   return (
     <div
+      data-node-id={topic.id}
       data-testid={`topic-row-${topic.id}`}
-      className="flex items-center justify-between px-3 py-2 hover:bg-gray-800/30 transition-colors group"
+      className={`flex items-center justify-between px-3 py-2 transition-all duration-200 group ${
+        isTarget
+          ? 'ring-2 ring-emerald-500/80 bg-emerald-500/10 shadow-[0_0_16px_rgba(16,185,129,0.25)] highlight-target'
+          : 'hover:bg-[var(--bg-surface-hover)]'
+      }`}
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <label
@@ -846,13 +1019,13 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
             checked={isCompleted}
             disabled={disabled}
             onChange={(e) => onToggleLeaf(topic.id, e.target.checked)}
-            className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-emerald-500 focus:ring-emerald-400 focus:ring-offset-gray-900 cursor-pointer transition-colors shrink-0"
+            className="w-4 h-4 rounded border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-emerald-600 dark:text-emerald-500 focus:ring-emerald-500/50 focus:ring-offset-[var(--bg-canvas)] cursor-pointer transition-colors shrink-0"
           />
           <span
             className={`text-xs transition-colors truncate ${
               isCompleted
-                ? 'line-through text-gray-500'
-                : 'text-gray-300 group-hover:text-gray-100'
+                ? 'line-through text-[var(--text-muted)]'
+                : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
             }`}
             title={topic.title}
           >
@@ -860,10 +1033,12 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
           </span>
         </label>
 
-        {!isVerified && (
+        {isNeedsReview && (
           <span
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-950/60 text-amber-300 border border-amber-800/50 shrink-0"
-            title="Extraction is not fully verified; evidence review suggested"
+            data-testid={`badge-needs-review-${topic.id}`}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 shrink-0"
+            title="This heading or extracted snippet has low structural confidence and may require manual verification."
+            role="status"
           >
             <AlertCircle className="w-2.5 h-2.5" />
             <span>Needs Review</span>
@@ -871,6 +1046,7 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
         )}
       </div>
 
+      {/* Modernized Compact Right-Aligned Action Cluster */}
       <div className="shrink-0 ml-2 flex items-center gap-1.5">
         {onOpenNote && (
           <button
@@ -880,10 +1056,10 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
               e.stopPropagation();
               onOpenNote(topic.id, topic.title);
             }}
-            className={`p-1 rounded transition-colors ${
+            className={`p-1 rounded-md transition-colors cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-amber-500/50 ${
               hasNote
-                ? 'text-amber-400 bg-amber-950/40 hover:bg-amber-900/50'
-                : 'text-gray-500 hover:text-amber-300 hover:bg-gray-800'
+                ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
+                : 'text-[var(--text-muted)] hover:text-amber-600 dark:hover:text-amber-300 hover:bg-[var(--bg-surface-hover)]'
             }`}
             title={hasNote ? 'Edit study notes (Notes present)' : 'Add study notes'}
             aria-label={`Notes for ${topic.title}`}
@@ -900,16 +1076,16 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
               e.stopPropagation();
               onOpenResource(topic.id, 'subtopic', topic.title);
             }}
-            className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1 transition-colors ${
+            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-colors cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 ${
               resourceCount > 0
-                ? 'text-indigo-300 bg-indigo-950/60 border border-indigo-800/40 hover:bg-indigo-900/60'
-                : 'text-gray-500 hover:text-indigo-300 hover:bg-gray-800 border border-transparent'
+                ? 'text-indigo-600 dark:text-indigo-300 bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20'
+                : 'text-[var(--text-muted)] hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-[var(--bg-surface-hover)] border border-transparent'
             }`}
             title={resourceCount > 0 ? `${resourceCount} resource(s) attached` : 'Add learning resource'}
             aria-label={`Resources for ${topic.title}`}
           >
             <Link2 className="w-3.5 h-3.5" />
-            {resourceCount > 0 && <span className="font-semibold text-[9px]">{resourceCount}</span>}
+            {resourceCount > 0 && <span className="font-semibold text-[9px] tabular-nums">{resourceCount}</span>}
           </button>
         )}
 
@@ -941,12 +1117,12 @@ const BranchCheckbox: React.FC<BranchCheckboxProps> = ({
       disabled={disabled}
       onCheckedChange={onToggle}
       aria-label={ariaLabel}
-      className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+      className={`w-4 h-4 rounded-md flex items-center justify-center border transition-colors ${
         state === true
-          ? 'bg-emerald-500 border-emerald-500 text-gray-950 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+          ? 'bg-emerald-600 dark:bg-emerald-500 border-emerald-600 dark:border-emerald-500 text-white dark:text-gray-950 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
           : state === 'indeterminate'
           ? 'bg-emerald-950/80 border-emerald-500 text-emerald-400'
-          : 'bg-gray-800/80 border-gray-600 hover:border-gray-400'
+          : 'bg-[var(--bg-surface-elevated)] border-[var(--border-strong)] hover:border-[var(--text-muted)]'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       <Checkbox.Indicator>

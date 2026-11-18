@@ -31,6 +31,8 @@ import type {
   SetTargetDatePayload,
   SyllabusResponse,
   SyllabusSummary,
+  TopicNote,
+  TopicResource,
   UploadProgress,
 } from '../types/syllabus';
 
@@ -51,6 +53,8 @@ export function useSyllabus() {
   const [showElectiveModal, setShowElectiveModal] = useState<boolean>(false);
 
   // Option-B: Notes & Resources State
+  const [syllabusNotes, setSyllabusNotes] = useState<TopicNote[]>([]);
+  const [syllabusResources, setSyllabusResources] = useState<TopicResource[]>([]);
   const [noteLeafIds, setNoteLeafIds] = useState<Set<string>>(new Set());
   const [resourceCounts, setResourceCounts] = useState<Record<string, number>>({});
   const [activeNoteLeaf, setActiveNoteLeaf] = useState<{ id: string; title: string } | null>(null);
@@ -63,6 +67,8 @@ export function useSyllabus() {
   const refreshNotesAndResources = useCallback(async (targetId?: string) => {
     const sId = targetId || activeSyllabusIdRef.current;
     if (!sId) {
+      setSyllabusNotes([]);
+      setSyllabusResources([]);
       setNoteLeafIds(new Set());
       setResourceCounts({});
       return;
@@ -74,6 +80,8 @@ export function useSyllabus() {
       ]);
 
       if (activeSyllabusIdRef.current === sId) {
+        setSyllabusNotes(notes);
+        setSyllabusResources(resources);
         setNoteLeafIds(new Set(notes.filter((n) => n.content.trim().length > 0).map((n) => n.leaf_id)));
         const counts: Record<string, number> = {};
         resources.forEach((r) => {
@@ -487,6 +495,8 @@ export function useSyllabus() {
     pacingData,
     noteLeafIds,
     resourceCounts,
+    syllabusNotes,
+    syllabusResources,
     activeNoteLeaf,
     activeResourceNode,
     health,
@@ -522,6 +532,8 @@ export function useSyllabus() {
       setPacingData({});
       setNoteLeafIds(new Set());
       setResourceCounts({});
+      setSyllabusNotes([]);
+      setSyllabusResources([]);
       setActiveNoteLeaf(null);
       setActiveResourceNode(null);
     },
