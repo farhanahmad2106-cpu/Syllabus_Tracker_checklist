@@ -159,7 +159,7 @@ async def syllabus_not_found_handler(request, exc: SyllabusNotFoundError):
 @app.exception_handler(InvalidLeafError)
 async def invalid_leaf_handler(request, exc: InvalidLeafError):
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": str(exc), "error_type": "InvalidLeafError", "leaf_id": exc.leaf_id},
     )
 
@@ -167,7 +167,7 @@ async def invalid_leaf_handler(request, exc: InvalidLeafError):
 @app.exception_handler(InvalidNodeError)
 async def invalid_node_handler(request, exc: InvalidNodeError):
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": str(exc), "error_type": "InvalidNodeError", "node_id": exc.node_id},
     )
 
@@ -177,7 +177,7 @@ async def file_validation_handler(request, exc: FileValidationError):
     detail = str(exc)
     status_code = status.HTTP_400_BAD_REQUEST
     if "maximum allowed size" in detail or "exceeds maximum" in detail:
-        status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        status_code = status.HTTP_413_CONTENT_TOO_LARGE
     elif "Unsupported file format" in detail:
         status_code = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
 
@@ -190,7 +190,7 @@ async def file_validation_handler(request, exc: FileValidationError):
 @app.exception_handler(HierarchyValidationError)
 async def hierarchy_validation_handler(request, exc: HierarchyValidationError):
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": str(exc), "error_type": "HierarchyValidationError"},
     )
 
@@ -198,7 +198,7 @@ async def hierarchy_validation_handler(request, exc: HierarchyValidationError):
 @app.exception_handler(DocumentParserError)
 async def document_parser_handler(request, exc: DocumentParserError):
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": str(exc), "error_type": "DocumentParserError"},
     )
 
@@ -206,7 +206,7 @@ async def document_parser_handler(request, exc: DocumentParserError):
 @app.exception_handler(ExtractionError)
 async def extraction_error_handler(request, exc: ExtractionError):
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": str(exc), "error_type": "ExtractionError"},
     )
 
@@ -222,7 +222,7 @@ async def ssrf_protection_handler(request, exc: SSRFProtectionError):
 @app.exception_handler(ScraperError)
 async def scraper_error_handler(request, exc: ScraperError):
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": str(exc), "error_type": "ScraperError"},
     )
 
@@ -616,7 +616,7 @@ async def preview_scrape_url(payload: IngestUrlRequest):
         )
     except ScraperError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
 
@@ -853,7 +853,7 @@ def toggle_branch(
         )
     else:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Either 'node_id' or 'leaf_ids' must be provided in bulk-toggle request.",
         )
 
@@ -982,13 +982,13 @@ def set_or_update_target_deadline(
     node, actual_type = lookup
     if actual_type != payload.node_type:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Node type mismatch: payload specified '{payload.node_type}', but target node '{payload.node_id}' is a '{actual_type}'",
         )
 
     if actual_type == "subject" and not is_subject_enrolled(node):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Cannot set deadline on non-enrolled or excluded elective subject '{payload.node_id}'",
         )
 
@@ -1215,7 +1215,7 @@ def add_resource_to_syllabus(
             )
     else:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid node_type '{payload.node_type}'",
         )
 
@@ -1479,7 +1479,7 @@ async def restore_syllabus_backup_endpoint(
         return result
     except (HierarchyValidationError, SyllabusNotFoundError) as e:
         session.rollback()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     except Exception as e:
         session.rollback()
         raise HTTPException(

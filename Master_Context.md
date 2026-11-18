@@ -185,5 +185,88 @@
   - Frontend test suite: 12 passed out of 12 in `vitest run`.
   - TypeScript typecheck: `tsc --noEmit` passed with 0 errors.
 
+### Options A, B, & C: Study Pacing, Notes, Resources, Export & Web Scraper [COMPLETED]
+- [x] Option A — Study Pacing & Target Deadlines:
+  - Persistent target deadlines per module and subject stored in SQLite (`target_deadlines` table).
+  - Pacing calculation engine (`backend/app/pacing.py`) computing required daily velocity vs actual pace.
+  - Pacing status classification: `on-track`, `ahead`, `behind`, `overdue`.
+  - Frontend `PacingBadge.tsx` with date picker popover and visual countdown indicators.
+- [x] Option B — Notes, Bookmarks & Multi-Format Syllabus Export:
+  - Topic personal notes stored in SQLite (`topic_notes` table) with markdown support via `TopicNotesDrawer.tsx`.
+  - External curated study resources and bookmarks stored in SQLite (`topic_resources` table) via `TopicResourcesModal.tsx`.
+  - Multi-format syllabus export endpoints: Markdown (`/api/syllabus/{id}/export/markdown`), JSON (`/api/syllabus/{id}/export/json`), and self-contained styled HTML (`/api/syllabus/{id}/export/html`).
+  - Full syllabus backup and restore endpoint (`/api/syllabus/restore-backup`) supporting both `clone` and `merge` restoration modes.
+- [x] Option C — Web URL Syllabus Scraper & SSRF Defense:
+  - Scraper service in `backend/app/scraper.py` with multi-layered SSRF defense (blocking private subnets, localhost, and AWS/GCP cloud metadata endpoints).
+  - HTML extraction with BeautifulSoup4 and Markdown conversion with html2text.
+  - Automatic downloadable document discovery (`.pdf`, `.docx`) from web pages.
+  - Endpoints: `POST /api/scrape/preview` and `POST /api/scrape/ingest`.
+  - Frontend `UrlImport.tsx` tab integrated into syllabus upload dialog.
+
+### Phase 10: Extraction Sanitization, Commercial UI & Unified Command Palette [COMPLETED]
+- [x] Extraction Sanitization & Input Defense:
+  - Document content normalization in `backend/app/sanitizer.py` stripping dangerous script/style blocks, iframes, and null bytes before LLM extraction.
+  - Preserved prompt-injection defense delimiters (`<untrusted_syllabus_content>`).
+- [x] Commercial UI Modernization & Adaptive Theme System:
+  - Centralized semantic CSS design tokens (`--bg-canvas`, `--bg-surface`, `--bg-surface-elevated`, `--text-primary`, `--border-subtle`).
+  - Adaptive theme engine (`frontend/src/hooks/useTheme.ts`) supporting dark, light, and system themes with OS `prefers-color-scheme` listener and `localStorage` persistence (`syllabus_tracker_theme`).
+  - Clean badge hygiene and elevation surfaces across all UI components.
+- [x] Unified Global Command Palette & Instant Search:
+  - Global shortcut modal (`frontend/src/components/CommandPalette.tsx`) triggered via `Ctrl+K` (Windows/Linux) or `Cmd+K` (macOS).
+  - Multi-entity fuzzy search across 5 hierarchy tiers (Years, Semesters, Subjects, Modules, Topics), personal topic notes, and study resources.
+  - Quick category filtering (`all`, `topics`, `modules`, `subjects`, `notes`, `resources`) with keyboard navigation and deep tree navigation.
+
+### Phase 11: Cross-Device Mobile Ergonomics, Installable PWA & Offline IndexedDB Sync [COMPLETED]
+- [x] Cross-Device Mobile & Tablet Ergonomics:
+  - Responsive layouts covering 360px–2560px viewports with mobile-first slide-over sidebar drawer.
+  - Touch ergonomics: minimum 44px tap targets, responsive action bars, and viewport-aware bottom sheets (`TopicNotesDrawer`).
+  - Safe-area inset compatibility (`env(safe-area-inset-bottom)`) for mobile notches and gesture bars.
+- [x] Installable Progressive Web App (PWA):
+  - Standalone web app manifest (`frontend/public/manifest.webmanifest`) with application metadata, icons, and display mode.
+  - Service Worker (`frontend/public/sw.js`) caching core app shell assets for offline availability.
+- [x] Local-First IndexedDB Persistence & FIFO Outbox Sync:
+  - IndexedDB storage engine (`frontend/src/lib/offlineStore.ts`) using `syllabus_tracker_offline_v1` database.
+  - Caches syllabi list, complete syllabus trees, topic notes, and study resources.
+  - Mutation outbox (`offline_outbox`) capturing offline toggle, note, and resource mutations in FIFO sequence.
+  - Synchronization hook (`frontend/src/hooks/useOfflineSync.ts`) replaying queued mutations on network reconnection with server conflict detection (404/409 reconciliation).
+  - Non-blocking offline status banner (`frontend/src/components/OfflineStatusBanner.tsx`) displaying online/offline status, pending sync count, and conflict recovery.
+
+### Phase 12: Study Analytics, Historical Activity Log & SM-2 Spaced-Repetition Scheduler [COMPLETED]
+- [x] Historical Activity Tracking & Event Logging:
+  - SQLite WAL persistence table `study_activity_events` capturing timestamped completion events, undos, and revision ratings without altering canonical completion authority.
+- [x] Study Analytics Aggregation Service:
+  - Analytics calculation engine (`backend/app/analytics.py`, `GET /api/syllabus/{id}/analytics`).
+  - 14-day study velocity chart, current and longest study streak calculation, and heuristic exam risk forecasting.
+- [x] Deterministic SM-2 Spaced Repetition Engine:
+  - Spaced repetition engine (`backend/app/spaced_repetition.py`) implementing deterministic `SM2-v1` algorithm.
+  - Computes repetition count, interval (in days), and easiness factor ($EF \ge 1.3$) based on user review ratings.
+  - Revision queue endpoint (`GET /api/syllabus/{id}/revisions/due`) and review submission endpoint (`POST /api/syllabus/{id}/revisions/{leaf_id}/review`).
+  - Rapid rating shortcuts: `1` (Again), `2` (Hard), `3` (Good), `4` (Easy).
+- [x] Analytics & Revision Workspace Dashboard:
+  - Dedicated workspace tab (`frontend/src/components/AnalyticsDashboard.tsx`) with KPI summary cards, 14-day velocity visualization, exam risk alert banner, and interactive due revision flashcards.
+
+### Step 1: Capacitor Native Mobile Packaging & Cross-Platform Integration [COMPLETED]
+- [x] Thin Native Wrapper Architecture:
+  - Installed Capacitor 7 (`@capacitor/core`, `@capacitor/cli`, `@capacitor/android`, `@capacitor/ios`, `@capacitor/app`, `@capacitor/status-bar`, `@capacitor/network`) in `frontend/`.
+  - Preserves 100% of existing React 19 / Vite / Tailwind CSS application architecture with zero duplicated state or academic logic.
+- [x] Configuration & Scaffolding:
+  - `frontend/capacitor.config.ts` configured with `appId: 'com.syllabustracker.app'`, `appName: 'Syllabus Tracker'`, `webDir: 'dist'`, `androidScheme: 'https'`.
+  - Scaffolded native Android (`frontend/android`) and iOS (`frontend/ios`) project directories.
+- [x] Cross-Platform Native Bridge (`frontend/src/lib/nativeBridge.ts`):
+  - Browser-safe platform detection (`isNativePlatform`, `getNativePlatform`).
+  - Theme-aware status bar appearance synchronization (`syncNativeStatusBar`: `#09090B` in dark mode, `#FAFAFA` in light mode; Android-guarded).
+  - Android hardware back-button listener (`registerNativeBackButton`) with priority overlay hierarchy (Command Palette $\to$ Confirm Delete $\to$ Notes Drawer $\to$ Resources Modal $\to$ Upload Modal $\to$ Elective Modal $\to$ Mobile Sidebar $\to$ Exit).
+- [x] Environment-Aware API URL Resolution (`frontend/src/lib/api.ts`):
+  - `resolveApiBaseUrl` resolves absolute backend URL on native mobile platforms (`VITE_API_BASE_URL`) while defaulting to `/api` on web/PWA.
+  - Documented in `frontend/.env.example` with emulator, simulator, LAN, and production guidelines.
+- [x] Build Tooling & Git Hygiene:
+  - Added npm scripts to `frontend/package.json`: `cap:sync`, `cap:android`, `cap:ios`.
+  - Added native build artifact and keystore exclusions in `.gitignore`.
+
 ### Current Repository Status
-- Codebase complete, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.
+- Codebase complete, hardened, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.
+- Verified Automated Test Baseline:
+  - Backend: 182 passed, 0 failed (`pytest backend/tests/`).
+  - Frontend: 123 passed across 17 test files (`vitest run`).
+  - Static Typecheck: 0 TypeScript errors (`tsc --noEmit`).
+  - Production Bundle: Clean Vite build (`npm run build`).
