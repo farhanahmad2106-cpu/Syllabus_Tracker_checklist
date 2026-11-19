@@ -264,6 +264,22 @@
   - Added npm scripts to `frontend/package.json`: `cap:sync`, `cap:android`, `cap:ios`.
   - Added native build artifact and keystore exclusions in `.gitignore`.
 
+### Step 2: Native Mobile Release Packaging & App Store Distribution [COMPLETED]
+- [x] Android Release Artifact Generation (Windows 11):
+  - Configuration checklist for production backend URL: `VITE_API_BASE_URL="https://your-api-domain.com/api"` followed by `npm run cap:sync`.
+  - Secure release keystore creation protocol outside git tracking (`$env:USERPROFILE\syllabus-release-key.jks`) using 2048-bit RSA and SHA-256 signatures.
+  - Double-guarded git hygiene with `*.keystore` and `*.jks` in both root and frontend `.gitignore`.
+  - Headless CLI compilation using Gradle Wrapper (`.\gradlew.bat assembleRelease` and `.\gradlew.bat bundleRelease`):
+    - Release APK: `frontend\android\app\build\outputs\apk\release\app-release-unsigned.apk`
+    - Release AAB: `frontend\android\app\build\outputs\bundle\release\app-release.aab`
+  - Visual release signing documentation via Android Studio GUI (**Build** $\to$ **Generate Signed Bundle / APK**).
+- [x] iOS Release IPA Compilation Workflow (macOS + Xcode):
+  - Environment variable configuration: `VITE_API_BASE_URL="https://your-api-domain.com/api" npm run cap:ios`.
+  - Target specification: Any iOS Device (arm64).
+  - Apple Developer signing configuration: Team identification, bundle ID `com.syllabustracker.app`, App Transport Security rules.
+  - Xcode distribution pipeline: `Product → Archive` and `Distribute App` in Organizer for TestFlight and App Store submission.
+
+
 ### Current Repository Status
 - Codebase complete, hardened, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.
 - Verified Automated Test Baseline:

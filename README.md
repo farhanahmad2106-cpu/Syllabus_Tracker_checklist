@@ -256,6 +256,68 @@ Navigate to [http://localhost:5173](http://localhost:5173).
 
 ---
 
+## 📱 Mobile Production Release & Distribution
+
+### 1. Android Release APK & Play Store AAB (Windows 11)
+
+#### Step 1: Configure Production Endpoint & Synchronize
+Ensure `VITE_API_BASE_URL` points to your HTTPS production or LAN backend URL before building the bundle (never bundle localhost `127.0.0.1` for physical mobile devices):
+```powershell
+cd frontend
+$env:VITE_API_BASE_URL="https://your-api-domain.com/api"
+npm run cap:sync
+```
+
+#### Step 2: Generate a Release Signing Keystore (One-Time Setup)
+Keep your keystore strictly outside the repository (verified by root and frontend `.gitignore` which exclude `*.jks` and `*.keystore`):
+```powershell
+keytool -genkey -v -keystore "$env:USERPROFILE\syllabus-release-key.jks" -keyalg RSA -keysize 2048 -validity 10000 -alias syllabus-key
+```
+
+#### Step 3: Compile Release APK & Android App Bundle (AAB)
+Using the Gradle wrapper with Android Studio's bundled JDK or system Java:
+```powershell
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+cd frontend\android
+.\gradlew.bat assembleRelease
+.\gradlew.bat bundleRelease
+```
+
+**Compilation Outputs:**
+- **Unsigned Release APK**: `frontend\android\app\build\outputs\apk\release\app-release-unsigned.apk`
+- **Release App Bundle (AAB)**: `frontend\android\app\build\outputs\bundle\release\app-release.aab`
+
+#### Step 4: Visual Code Signing via Android Studio
+```powershell
+cd frontend
+npm run cap:android
+```
+1. In Android Studio, select **Build** → **Generate Signed Bundle / APK**.
+2. Choose **Android App Bundle** (Google Play Store) or **APK** (direct sideload / enterprise).
+3. Point to `$env:USERPROFILE\syllabus-release-key.jks` and key alias `syllabus-key`.
+4. Build the signed release artifact with V1/V2 signatures and SHA-256 checksum verification.
+
+---
+
+### 2. iOS Release IPA (Requires macOS + Xcode)
+
+Native iOS compilation and code signing cannot execute on Windows and must be run on a macOS build host with Xcode and CocoaPods installed:
+
+```bash
+cd frontend
+VITE_API_BASE_URL="https://your-api-domain.com/api" npm run cap:ios
+```
+
+**In Xcode:**
+1. Select **Any iOS Device (arm64)** as the active build target.
+2. Configure **Signing & Capabilities** (Developer Team, Bundle ID `com.syllabustracker.app`, App Transport Security HTTPS rules).
+3. Select **Product** → **Archive**.
+4. In the Xcode Organizer window, click **Distribute App** to export the signed `.ipa` or upload to TestFlight / App Store Connect.
+
+
+---
+
 ## 📋 Canonical API Endpoints
 
 | Method | Endpoint | Description |
