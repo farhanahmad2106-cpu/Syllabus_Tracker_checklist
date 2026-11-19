@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { FlashcardDeckModal } from '../components/FlashcardDeckModal';
 import * as api from '../lib/api';
-import type { StudyFlashcard, FlashcardGenerationResponse } from '../types/syllabus';
+import type { StudyFlashcard, FlashcardGenerationResponse, ReviewRatingResponse } from '../types/syllabus';
 
 vi.mock('../lib/api', () => ({
   fetchStudyFlashcards: vi.fn(),
@@ -19,7 +19,7 @@ describe('FlashcardDeckModal Component', () => {
 
   const sampleCards: StudyFlashcard[] = [
     {
-      id: 'card_1',
+      id: 1,
       syllabus_id: mockSyllabusId,
       leaf_id: mockLeafId,
       front_question: 'What is the purpose of Paging in memory management?',
@@ -28,12 +28,11 @@ describe('FlashcardDeckModal Component', () => {
       source_quote: 'Paging is a memory management scheme that eliminates contiguous allocation.',
       source_type: 'official_syllabus',
       source_page: 22,
-      created_by: 'ai_ollama',
-      fingerprint: 'fp_123',
+      created_by: 'ai_grounded',
       created_at: '2026-11-19T10:00:00Z',
     },
     {
-      id: 'card_2',
+      id: 2,
       syllabus_id: mockSyllabusId,
       leaf_id: mockLeafId,
       front_question: 'What is the function of the Translation Lookaside Buffer (TLB)?',
@@ -42,8 +41,7 @@ describe('FlashcardDeckModal Component', () => {
       source_quote: 'Translation Lookaside Buffer (TLB) acts as a high-speed hardware cache.',
       source_type: 'official_syllabus',
       source_page: 23,
-      created_by: 'ai_ollama',
-      fingerprint: 'fp_456',
+      created_by: 'ai_grounded',
       created_at: '2026-11-19T10:00:00Z',
     },
   ];
@@ -110,18 +108,18 @@ describe('FlashcardDeckModal Component', () => {
 
   it('allows rating recall with SM-2 shortcuts and submits review', async () => {
     vi.mocked(api.fetchStudyFlashcards).mockResolvedValueOnce(sampleCards);
-    vi.mocked(api.submitRevisionReview).mockResolvedValueOnce({
-      id: 'rev_1',
+    const mockRatingResponse: ReviewRatingResponse = {
+      schedule_id: 1,
       syllabus_id: mockSyllabusId,
       leaf_id: mockLeafId,
-      repetition_number: 1,
-      easiness_factor: 2.6,
+      repetition_count: 1,
       interval_days: 1,
+      ease_factor: 2.6,
       next_review_date: '2026-11-20T10:00:00Z',
-      last_reviewed_at: '2026-11-19T10:00:00Z',
-      last_quality_rating: 4,
-      is_due: false,
-    });
+      quality: 4,
+      reviewed_at: '2026-11-19T10:00:00Z',
+    };
+    vi.mocked(api.submitRevisionReview).mockResolvedValueOnce(mockRatingResponse);
 
     const onRatingSubmitted = vi.fn();
 
@@ -149,9 +147,8 @@ describe('FlashcardDeckModal Component', () => {
     fireEvent.click(easyBtn);
 
     await waitFor(() => {
-      expect(api.submitRevisionReview).toHaveBeenCalledWith(mockSyllabusId, mockLeafId, 4);
+      expect(api.submitRevisionReview).toHaveBeenCalledWith(mockSyllabusId, mockLeafId, { quality: 4 });
       expect(onRatingSubmitted).toHaveBeenCalled();
-      // Should now advance to Card 2 of 2
       expect(screen.getByText('Card 2 of 2')).toBeInTheDocument();
     });
   });
@@ -162,9 +159,9 @@ describe('FlashcardDeckModal Component', () => {
     const genResponse: FlashcardGenerationResponse = {
       syllabus_id: mockSyllabusId,
       leaf_id: mockLeafId,
-      count: 2,
-      generated_by: 'ai_ollama',
       cards: sampleCards,
+      generation_mode: 'ai_grounded',
+      count: 2,
     };
     vi.mocked(api.generateTopicFlashcards).mockResolvedValueOnce(genResponse);
 
@@ -193,7 +190,7 @@ describe('FlashcardDeckModal Component', () => {
 
   it('deletes a flashcard when delete button is confirmed', async () => {
     vi.mocked(api.fetchStudyFlashcards).mockResolvedValueOnce(sampleCards);
-    vi.mocked(api.deleteStudyFlashcard).mockResolvedValueOnce({ deleted: true });
+    vi.mocked(api.deleteStudyFlashcard).mockResolvedValueOnce({ deleted: true, card_id: 1 });
 
     render(
       <FlashcardDeckModal
@@ -213,7 +210,7 @@ describe('FlashcardDeckModal Component', () => {
     fireEvent.click(deleteBtn);
 
     await waitFor(() => {
-      expect(api.deleteStudyFlashcard).toHaveBeenCalledWith(mockSyllabusId, 'card_1');
+      expect(api.deleteStudyFlashcard).toHaveBeenCalledWith(mockSyllabusId, 1);
       expect(screen.getByText('Card 1 of 1')).toBeInTheDocument();
     });
   });

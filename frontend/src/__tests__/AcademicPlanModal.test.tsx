@@ -11,7 +11,6 @@ describe('AcademicPlanModal Component', () => {
     code: 'CS301',
     credits: 4.0,
     ltp: '3-1-0',
-    is_laboratory: false,
     is_elective: false,
     is_enrolled: true,
     enrollment_status: 'mandatory',
@@ -22,15 +21,21 @@ describe('AcademicPlanModal Component', () => {
     subject_id: 'subj_algos',
     subject_title: 'Design and Analysis of Algorithms',
     subject_code: 'CS301',
+    semester_id: 'sem_1',
+    semester_title: 'Semester 1',
     is_enrolled: true,
+    is_lab: false,
+    is_elective: false,
     declared_credits: 4.0,
     credit_override: 4.5,
     effective_credits: 4.5,
     target_grade_points: 9.0,
     grade_scale: '10.0',
     is_gpa_eligible: true,
+    is_completed: false,
+    total_leaves: 10,
+    completed_leaves: 4,
     ltp: '3-1-0',
-    is_laboratory: false,
   };
 
   beforeEach(() => {
@@ -45,7 +50,7 @@ describe('AcademicPlanModal Component', () => {
         syllabusId="syl_1"
         subject={mockSubject}
         existingPlan={mockExistingPlan}
-        onSave={vi.fn()}
+        onSavePlan={vi.fn()}
       />
     );
 
@@ -70,7 +75,7 @@ describe('AcademicPlanModal Component', () => {
         syllabusId="syl_1"
         subject={mockSubject}
         existingPlan={null}
-        onSave={handleSave}
+        onSavePlan={handleSave}
       />
     );
 
@@ -100,7 +105,7 @@ describe('AcademicPlanModal Component', () => {
         syllabusId="syl_1"
         subject={mockSubject}
         existingPlan={null}
-        onSave={vi.fn()}
+        onSavePlan={vi.fn()}
       />
     );
 
@@ -128,7 +133,7 @@ describe('AcademicPlanModal Component', () => {
         syllabusId="syl_1"
         subject={mockSubject}
         existingPlan={null}
-        onSave={vi.fn()}
+        onSavePlan={vi.fn()}
       />
     );
 

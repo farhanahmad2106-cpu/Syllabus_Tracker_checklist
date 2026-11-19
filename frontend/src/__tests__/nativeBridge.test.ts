@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { Directory, Filesystem } from '@capacitor/filesystem';
@@ -14,7 +14,6 @@ import {
   exportAndShareFile,
   shareSummary,
   registerIncomingShareListener,
-  cleanupStaleExportCache,
 } from '../lib/nativeBridge';
 import { resolveApiBaseUrl } from '../lib/api';
 

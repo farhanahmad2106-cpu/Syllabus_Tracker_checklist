@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  Plus,
   RefreshCw,
   RotateCw,
   Sparkles,
@@ -107,7 +106,7 @@ export const FlashcardDeckModal: React.FC<FlashcardDeckModalProps> = ({
   const handleRate = async (quality: number) => {
     if (!leafId || !syllabusId) return;
     try {
-      await submitRevisionReview(syllabusId, leafId, quality);
+      await submitRevisionReview(syllabusId, leafId, { quality: quality as 1 | 2 | 3 | 4 });
       if (onRatingSubmitted) onRatingSubmitted();
       setNotification(`Review rating recorded (Quality ${quality}/4).`);
       // Advance to next card or wrap

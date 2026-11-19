@@ -1,13 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   AlertCircle,
-  BookOpen,
   Check,
-  CheckCircle2,
-  ChevronRight,
-  GraduationCap,
-  Layers,
-  Link2,
   RefreshCw,
   Scale,
   Sparkles,
@@ -15,7 +9,6 @@ import {
 } from 'lucide-react';
 import { compareSyllabi } from '../lib/api';
 import type {
-  SyllabusComparisonItem,
   SyllabusComparisonResponse,
   SyllabusSummary,
 } from '../types/syllabus';

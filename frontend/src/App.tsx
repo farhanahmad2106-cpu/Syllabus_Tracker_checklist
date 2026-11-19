@@ -16,7 +16,6 @@ import {
   RefreshCw,
   Scale,
   Search,
-  Sparkles,
   Sun,
   Trash2,
   X,
@@ -1126,12 +1125,8 @@ export const App: React.FC = () => {
       <CompareSyllabiModal
         isOpen={isCompareModalOpen}
         onClose={() => setIsCompareModalOpen(false)}
-        syllabi={uniqueSyllabi}
-        initialSelectedIds={
-          activeSyllabus
-            ? [activeSyllabus.syllabus.id]
-            : uniqueSyllabi.slice(0, 2).map((s) => s.id)
-        }
+        syllabiList={uniqueSyllabi}
+        activeSyllabusId={activeSyllabus?.syllabus.id}
       />
 
       {/* Phase 13 Cycle A: Academic Plan Configuration Modal */}
@@ -1145,7 +1140,7 @@ export const App: React.FC = () => {
           syllabusId={activeSyllabus.syllabus.id}
           subject={selectedAcademicSubject}
           existingPlan={academicPlansMap[selectedAcademicSubject.id] || null}
-          onSave={handleSaveAcademicPlan}
+          onSavePlan={handleSaveAcademicPlan}
         />
       )}
 

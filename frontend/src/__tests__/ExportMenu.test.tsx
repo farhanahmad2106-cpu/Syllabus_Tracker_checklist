@@ -22,7 +22,7 @@ vi.mock('../lib/nativeBridge', () => ({
 describe('ExportMenu Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       text: () => Promise.resolve('# Mock Export Content'),
@@ -140,10 +140,11 @@ describe('ExportMenu Component', () => {
     vi.mocked(api.restoreSyllabusBackupFile).mockResolvedValue({
       success: true,
       syllabus_id: 'syl_restored_999',
-      title: 'Restored CS',
-      total_leaves: 25,
-      completed_leaves: 10,
-      mode: 'clone',
+      restored_completed_leaves: 10,
+      restored_notes: 2,
+      restored_resources: 1,
+      restored_deadlines: 1,
+      warnings: [],
     });
 
     const onRestoreSuccess = vi.fn();

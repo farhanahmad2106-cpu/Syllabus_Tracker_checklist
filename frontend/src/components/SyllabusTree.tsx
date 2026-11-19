@@ -865,8 +865,6 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
               resourceCounts={resourceCounts}
               onOpenNote={onOpenNote}
               onOpenResource={onOpenResource}
-              academicPlansMap={academicPlansMap}
-              onOpenAcademicPlan={onOpenAcademicPlan}
               onOpenFlashcards={onOpenFlashcards}
               onOpenStudyAssistant={onOpenStudyAssistant}
             />

@@ -50,16 +50,13 @@ describe('StudyAssistantDrawer Component', () => {
       answer_state: 'supported',
       citations: [
         {
-          citation_index: 1,
-          label: 'CS301 > Module 2 > Deadlocks',
-          verbatim_quote: 'Bankers Algorithm is used for deadlock avoidance',
-          source_type: 'official_syllabus',
+          citation_label: 'CS301 > Module 2 > Deadlocks',
+          source_quote: 'Bankers Algorithm is used for deadlock avoidance',
+          authority: 'official_syllabus',
           leaf_id: 'leaf_deadlocks_1',
-          page_number: 14,
+          source_page: 14,
         },
       ],
-      retrieval_count: 1,
-      model_used: 'ollama:llama3.2',
     };
 
     vi.mocked(api.askStudyAssistant).mockResolvedValueOnce(mockAnswer);
@@ -103,8 +100,6 @@ describe('StudyAssistantDrawer Component', () => {
       answer_markdown: 'I could not find any official syllabus content or notes discussing this topic.',
       answer_state: 'insufficient_evidence',
       citations: [],
-      retrieval_count: 0,
-      model_used: 'abstained_no_retrieval',
     };
 
     vi.mocked(api.askStudyAssistant).mockResolvedValueOnce(mockAbstention);

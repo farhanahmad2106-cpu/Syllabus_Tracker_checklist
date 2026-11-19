@@ -3,20 +3,21 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { CompareSyllabiModal } from '../components/CompareSyllabiModal';
 import * as api from '../lib/api';
-import type { SyllabusComparisonResponse, SyllabusListItem } from '../types/syllabus';
+import type { SyllabusComparisonResponse, SyllabusSummary } from '../types/syllabus';
 
 vi.mock('../lib/api', () => ({
   compareSyllabi: vi.fn(),
 }));
 
 describe('CompareSyllabiModal Component', () => {
-  const mockSyllabi: SyllabusListItem[] = [
+  const mockSyllabi: SyllabusSummary[] = [
     {
       id: 'syl_1',
       title: 'Computer Science & Engineering',
       source_filename: 'cse.pdf',
-      schema_version: '1.0.0',
       created_at: '2026-11-01T00:00:00Z',
+      updated_at: '2026-11-01T00:00:00Z',
+      leaf_count: 100,
       progress: {
         total_leaves: 100,
         completed_leaves: 60,
@@ -27,8 +28,9 @@ describe('CompareSyllabiModal Component', () => {
       id: 'syl_2',
       title: 'Information Technology',
       source_filename: 'it.pdf',
-      schema_version: '1.0.0',
       created_at: '2026-11-01T00:00:00Z',
+      updated_at: '2026-11-01T00:00:00Z',
+      leaf_count: 90,
       progress: {
         total_leaves: 90,
         completed_leaves: 45,
@@ -39,8 +41,9 @@ describe('CompareSyllabiModal Component', () => {
       id: 'syl_3',
       title: 'Electronics & Communication',
       source_filename: 'ece.pdf',
-      schema_version: '1.0.0',
       created_at: '2026-11-01T00:00:00Z',
+      updated_at: '2026-11-01T00:00:00Z',
+      leaf_count: 110,
       progress: {
         total_leaves: 110,
         completed_leaves: 33,
@@ -50,175 +53,132 @@ describe('CompareSyllabiModal Component', () => {
   ];
 
   const mockComparisonResponse: SyllabusComparisonResponse = {
-    total_compared: 2,
     syllabi: [
       {
         syllabus_id: 'syl_1',
         title: 'Computer Science & Engineering',
+        source_type: 'pdf',
         source_filename: 'cse.pdf',
-        total_years: 4,
-        total_semesters: 8,
+        year_count: 4,
+        semester_count: 8,
         total_subjects: 40,
-        enrolled_subjects_count: 36,
-        elective_subjects_count: 4,
+        enrolled_subjects: 36,
+        excluded_electives: 4,
+        lab_subjects: 8,
+        lab_ratio_percent: 20.0,
         total_modules: 120,
-        total_leaves: 100,
-        completed_leaves: 60,
-        completion_percentage: 60.0,
-        total_declared_credits: 160.0,
-        total_effective_credits: 160.0,
-        total_completed_credits: 96.0,
-        proportional_earned_credits_estimate: 96.0,
-        laboratory_courses_count: 8,
-        laboratory_ratio_percent: 20.0,
-        weekly_workload: {
-          lecture_hours: 32.0,
-          tutorial_hours: 8.0,
-          practical_hours: 16.0,
-          total_hours: 56.0,
-        },
-        projections: {
-          scale_10: {
-            target_gpa: 8.8,
-            gpa_eligible_credits: 160.0,
-            gpa_eligible_subjects_count: 36,
-            scale: '10.0',
-          },
-          scale_4: {
-            target_gpa: null,
-            gpa_eligible_credits: 0.0,
-            gpa_eligible_subjects_count: 0,
-            scale: '4.0',
-          },
-        },
+        total_topics: 100,
+        completed_topics: 60,
+        completion_percent: 60.0,
+        total_known_declared_credits: 160.0,
+        missing_credit_subject_count: 0,
+        target_gpa_subject_count: 36,
       },
       {
         syllabus_id: 'syl_2',
         title: 'Information Technology',
+        source_type: 'pdf',
         source_filename: 'it.pdf',
-        total_years: 4,
-        total_semesters: 8,
+        year_count: 4,
+        semester_count: 8,
         total_subjects: 38,
-        enrolled_subjects_count: 35,
-        elective_subjects_count: 3,
-        total_modules: 115,
-        total_leaves: 90,
-        completed_leaves: 45,
-        completion_percentage: 50.0,
-        total_declared_credits: 155.0,
-        total_effective_credits: 155.0,
-        total_completed_credits: 77.5,
-        proportional_earned_credits_estimate: 77.5,
-        laboratory_courses_count: 7,
-        laboratory_ratio_percent: 18.4,
-        weekly_workload: {
-          lecture_hours: 30.0,
-          tutorial_hours: 6.0,
-          practical_hours: 14.0,
-          total_hours: 50.0,
-        },
-        projections: {
-          scale_10: {
-            target_gpa: 8.5,
-            gpa_eligible_credits: 155.0,
-            gpa_eligible_subjects_count: 35,
-            scale: '10.0',
-          },
-          scale_4: {
-            target_gpa: null,
-            gpa_eligible_credits: 0.0,
-            gpa_eligible_subjects_count: 0,
-            scale: '4.0',
-          },
-        },
+        enrolled_subjects: 35,
+        excluded_electives: 3,
+        lab_subjects: 6,
+        lab_ratio_percent: 15.8,
+        total_modules: 110,
+        total_topics: 90,
+        completed_topics: 45,
+        completion_percent: 50.0,
+        total_known_declared_credits: 150.0,
+        missing_credit_subject_count: 0,
+        target_gpa_subject_count: 35,
       },
     ],
     shared_subjects: [
       {
-        subject_title: 'Data Structures and Algorithms',
-        subject_code: 'CS201',
-        match_type: 'exact_code',
-        similarity_score: 1.0,
-        syllabus_ids: ['syl_1', 'syl_2'],
-        credits_by_syllabus: { syl_1: 4.0, syl_2: 4.0 },
+        subject_title_a: 'Data Structures and Algorithms',
+        subject_title_b: 'Data Structures and Algorithms',
+        syllabus_id_a: 'syl_1',
+        syllabus_id_b: 'syl_2',
+        subject_id_a: 'subj_cse_dsa',
+        subject_id_b: 'subj_it_dsa',
+        match_type: 'course_code',
+        match_strength: 1.0,
       },
     ],
+    compared_at: '2026-11-19T10:00:00Z',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('renders modal with syllabus checkboxes and handles selection', () => {
+  it('renders modal with syllabus checkboxes and selection controls', () => {
     render(
       <CompareSyllabiModal
         isOpen={true}
         onClose={vi.fn()}
-        syllabi={mockSyllabi}
-        initialSelectedIds={['syl_1']}
+        syllabiList={mockSyllabi}
+        activeSyllabusId="syl_1"
       />
     );
 
-    expect(screen.getByText('Curriculum Comparison Matrix')).toBeInTheDocument();
+    expect(screen.getByText('Multi-Syllabus Curriculum Comparison')).toBeInTheDocument();
     expect(screen.getByText('Computer Science & Engineering')).toBeInTheDocument();
     expect(screen.getByText('Information Technology')).toBeInTheDocument();
     expect(screen.getByText('Electronics & Communication')).toBeInTheDocument();
-
-    // Check that Compare button is disabled with only 1 syllabus selected
-    const compareBtn = screen.getByTestId('run-comparison-btn');
-    expect(compareBtn).toBeDisabled();
   });
 
-  it('enforces 2 to 4 syllabus selection limit', () => {
-    render(
-      <CompareSyllabiModal
-        isOpen={true}
-        onClose={vi.fn()}
-        syllabi={mockSyllabi}
-        initialSelectedIds={['syl_1', 'syl_2']}
-      />
-    );
-
-    const compareBtn = screen.getByTestId('run-comparison-btn');
-    expect(compareBtn).not.toBeDisabled();
-    expect(screen.getByText('Ready to compare 2 curricula.')).toBeInTheDocument();
-  });
-
-  it('fetches comparison data and displays metrics and shared courses', async () => {
+  it('triggers comparison API when 2 or more syllabi are selected', async () => {
     vi.mocked(api.compareSyllabi).mockResolvedValue(mockComparisonResponse);
 
     render(
       <CompareSyllabiModal
         isOpen={true}
         onClose={vi.fn()}
-        syllabi={mockSyllabi}
-        initialSelectedIds={['syl_1', 'syl_2']}
+        syllabiList={mockSyllabi}
+        activeSyllabusId="syl_1"
       />
     );
 
-    const compareBtn = screen.getByTestId('run-comparison-btn');
-    fireEvent.click(compareBtn);
+    await waitFor(() => {
+      expect(api.compareSyllabi).toHaveBeenCalled();
+    });
+  });
+
+  it('displays comparison metrics when API returns data', async () => {
+    vi.mocked(api.compareSyllabi).mockResolvedValue(mockComparisonResponse);
+
+    render(
+      <CompareSyllabiModal
+        isOpen={true}
+        onClose={vi.fn()}
+        syllabiList={mockSyllabi}
+        activeSyllabusId="syl_1"
+      />
+    );
 
     await waitFor(() => {
-      expect(api.compareSyllabi).toHaveBeenCalledWith(['syl_1', 'syl_2']);
-      expect(screen.getByText('Side-by-Side Comparison Matrix')).toBeInTheDocument();
-      expect(screen.getByText('Curriculum Progress')).toBeInTheDocument();
+      expect(screen.getByText('Curriculum Metrics Matrix')).toBeInTheDocument();
+      expect(screen.getByText('Shared & Overlapping Courses')).toBeInTheDocument();
       expect(screen.getByText('Data Structures and Algorithms')).toBeInTheDocument();
     });
   });
 
   it('calls onClose when close button is clicked', () => {
     const handleClose = vi.fn();
+
     render(
       <CompareSyllabiModal
         isOpen={true}
         onClose={handleClose}
-        syllabi={mockSyllabi}
-        initialSelectedIds={['syl_1']}
+        syllabiList={mockSyllabi}
+        activeSyllabusId="syl_1"
       />
     );
 
-    const closeBtn = screen.getByLabelText('Close comparison modal');
+    const closeBtn = screen.getByTestId('close-compare-modal-btn');
     fireEvent.click(closeBtn);
     expect(handleClose).toHaveBeenCalledTimes(1);
   });

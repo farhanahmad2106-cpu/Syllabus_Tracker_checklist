@@ -12,7 +12,6 @@ import {
   X,
   FileJson,
   Share2,
-  Copy,
 } from 'lucide-react';
 import type { ExportOptions, BackupRestoreResult } from '../types/syllabus';
 import {
