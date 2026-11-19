@@ -24,6 +24,7 @@ from backend.app.models import (
     LeafCompletionRecord,
     RevisionEvent,
     RevisionSchedule,
+    StudyFlashcard,
     SubjectAcademicPlan,
     SyllabusRecord,
     TargetDeadline,
@@ -143,6 +144,34 @@ def init_db(db_engine: Optional[Engine] = None) -> None:
                 SubjectAcademicPlan.__table__.create(bind=conn, checkfirst=True)
                 conn.commit()
 
+            # Ensure study_flashcards table is created if running against existing database
+            sf_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='study_flashcards'"))
+            if not sf_check.fetchone():
+                StudyFlashcard.__table__.create(bind=conn, checkfirst=True)
+                conn.commit()
+
+            # Ensure SQLite FTS5 virtual table exists for local RAG retrieval
+            try:
+                conn.execute(
+                    text(
+                        """
+                        CREATE VIRTUAL TABLE IF NOT EXISTS syllabus_retrieval_fts USING fts5(
+                            syllabus_id UNINDEXED,
+                            leaf_id UNINDEXED,
+                            source_type UNINDEXED,
+                            hierarchy_breadcrumb,
+                            title,
+                            content,
+                            source_page UNINDEXED,
+                            tokenize = 'unicode61'
+                        )
+                        """
+                    )
+                )
+                conn.commit()
+            except Exception:
+                pass
+
     except Exception:
         pass
 
@@ -208,6 +237,10 @@ def save_syllabus(
         existing.warnings_json = json.dumps(warnings or [])
         existing.updated_at = datetime.now(timezone.utc)
         session.flush()
+        try:
+            rebuild_syllabus_fts_index(session, syllabus.id)
+        except Exception:
+            pass
         return existing
 
     record = SyllabusRecord(
@@ -225,6 +258,10 @@ def save_syllabus(
     )
     session.add(record)
     session.flush()
+    try:
+        rebuild_syllabus_fts_index(session, syllabus.id)
+    except Exception:
+        pass
     return record
 
 
@@ -549,6 +586,13 @@ def delete_syllabus(session: Session, syllabus_id: str) -> bool:
     session.execute(
         delete(SubjectAcademicPlan).where(SubjectAcademicPlan.syllabus_id == syllabus_id)
     )
+    session.execute(
+        delete(StudyFlashcard).where(StudyFlashcard.syllabus_id == syllabus_id)
+    )
+    try:
+        delete_syllabus_fts(session, syllabus_id)
+    except Exception:
+        pass
     session.delete(rec)
 
     session.flush()
@@ -711,6 +755,11 @@ def finalize_syllabus_enrollment(
     rec.updated_at = datetime.now(timezone.utc)
     session.flush()
 
+    try:
+        rebuild_syllabus_fts_index(session, syllabus_id)
+    except Exception:
+        pass
+
     return syllabus
 
 
@@ -755,6 +804,10 @@ def upsert_topic_note(
 
     note = get_topic_note(session, syllabus_id, leaf_id)
     assert note is not None
+    try:
+        sync_topic_note_fts(session, syllabus_id, leaf_id, content)
+    except Exception:
+        pass
     return note
 
 
@@ -765,6 +818,10 @@ def delete_topic_note(session: Session, syllabus_id: str, leaf_id: str) -> bool:
         return False
     session.delete(existing)
     session.flush()
+    try:
+        delete_topic_note_fts(session, syllabus_id, leaf_id)
+    except Exception:
+        pass
     return True
 
 
@@ -891,6 +948,278 @@ def upsert_subject_academic_plan(
         session.add(rec)
     session.flush()
     return rec
+
+
+# ===========================================================================
+# Phase 13 Cycle B: FTS5 Local RAG Indexing & Flashcards Helpers
+# ===========================================================================
+
+
+def ensure_fts_table(session: Session) -> None:
+    """Ensure syllabus_retrieval_fts virtual table exists in the active session's database."""
+    try:
+        session.execute(
+            text(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS syllabus_retrieval_fts USING fts5(
+                    syllabus_id UNINDEXED,
+                    leaf_id UNINDEXED,
+                    source_type UNINDEXED,
+                    hierarchy_breadcrumb,
+                    title,
+                    content,
+                    source_page UNINDEXED,
+                    tokenize = 'unicode61'
+                )
+                """
+            )
+        )
+    except Exception:
+        pass
+
+
+def delete_syllabus_fts(session: Session, syllabus_id: str) -> None:
+    """Remove all indexed syllabus excerpts and personal notes for a syllabus from FTS5."""
+    ensure_fts_table(session)
+    try:
+        session.execute(
+            text("DELETE FROM syllabus_retrieval_fts WHERE syllabus_id = :syl_id"),
+            {"syl_id": syllabus_id},
+        )
+    except Exception:
+        pass
+
+
+def rebuild_syllabus_fts_index(session: Session, syllabus_id: str) -> int:
+    """
+    Deterministically rebuild the FTS5 index for a syllabus from scratch.
+    - Purges stale FTS rows for syllabus_id.
+    - Indexes enrolled Tier-5 leaves with breadcrumb context and verbatim source_text.
+    - Indexes student personal notes for enrolled leaves.
+    - Excludes unenrolled electives.
+    """
+    ensure_fts_table(session)
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        return 0
+
+    delete_syllabus_fts(session, syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+
+    leaf_meta: dict[str, dict[str, Any]] = {}
+    total_indexed = 0
+
+    # Index official syllabus excerpts
+    for yr in syllabus.years:
+        for sem in yr.semesters:
+            for subj in sem.subjects:
+                # Exclude unenrolled electives
+                if not getattr(subj, "is_enrolled", True):
+                    continue
+                subj_title = f"{subj.code} - {subj.title}" if getattr(subj, "code", None) else subj.title
+                for mod in subj.modules:
+                    breadcrumb = f"{yr.title} > {sem.title} > {subj_title} > {mod.title}"
+                    for top in mod.topics:
+                        leaf_meta[top.id] = {
+                            "title": top.title,
+                            "breadcrumb": breadcrumb,
+                            "subject_id": subj.id,
+                        }
+                        page_val = str(top.source_page) if getattr(top, "source_page", None) is not None else ""
+                        try:
+                            session.execute(
+                                text(
+                                    """
+                                    INSERT INTO syllabus_retrieval_fts(
+                                        syllabus_id, leaf_id, source_type, hierarchy_breadcrumb, title, content, source_page
+                                    ) VALUES (:syl_id, :leaf_id, 'syllabus_excerpt', :breadcrumb, :title, :content, :source_page)
+                                    """
+                                ),
+                                {
+                                    "syl_id": syllabus_id,
+                                    "leaf_id": top.id,
+                                    "breadcrumb": breadcrumb,
+                                    "title": top.title,
+                                    "content": top.source_text or top.title,
+                                    "source_page": page_val,
+                                },
+                            )
+                            total_indexed += 1
+                        except Exception:
+                            pass
+
+    # Index personal notes for enrolled leaves
+    notes = get_all_syllabus_notes(session, syllabus_id)
+    for note in notes:
+        meta = leaf_meta.get(note.leaf_id)
+        if not meta or not note.content.strip():
+            continue
+        try:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO syllabus_retrieval_fts(
+                        syllabus_id, leaf_id, source_type, hierarchy_breadcrumb, title, content, source_page
+                    ) VALUES (:syl_id, :leaf_id, 'student_note', :breadcrumb, :title, :content, '')
+                    """
+                ),
+                {
+                    "syl_id": syllabus_id,
+                    "leaf_id": note.leaf_id,
+                    "breadcrumb": meta["breadcrumb"],
+                    "title": f"Note: {meta['title']}",
+                    "content": note.content,
+                },
+            )
+            total_indexed += 1
+        except Exception:
+            pass
+
+    return total_indexed
+
+
+def sync_topic_note_fts(
+    session: Session,
+    syllabus_id: str,
+    leaf_id: str,
+    content: str,
+) -> None:
+    """Synchronize an updated or created topic note in FTS5."""
+    ensure_fts_table(session)
+    try:
+        # Delete prior note row in FTS
+        session.execute(
+            text(
+                "DELETE FROM syllabus_retrieval_fts WHERE syllabus_id = :syl_id AND leaf_id = :leaf_id AND source_type = 'student_note'"
+            ),
+            {"syl_id": syllabus_id, "leaf_id": leaf_id},
+        )
+        if content.strip():
+            # Resolve breadcrumb from syllabus record
+            rec = get_syllabus_record(session, syllabus_id)
+            if rec:
+                raw_data = json.loads(rec.hierarchy_json)
+                syllabus = HierarchicalSyllabus.model_validate(raw_data)
+                breadcrumb = "Course Notes"
+                title = "Note"
+                found = False
+                for yr in syllabus.years:
+                    if found:
+                        break
+                    for sem in yr.semesters:
+                        if found:
+                            break
+                        for subj in sem.subjects:
+                            if not getattr(subj, "is_enrolled", True):
+                                continue
+                            for mod in subj.modules:
+                                for top in mod.topics:
+                                    if top.id == leaf_id:
+                                        subj_title = f"{subj.code} - {subj.title}" if getattr(subj, "code", None) else subj.title
+                                        breadcrumb = f"{yr.title} > {sem.title} > {subj_title} > {mod.title}"
+                                        title = f"Note: {top.title}"
+                                        found = True
+                                        break
+                session.execute(
+                    text(
+                        """
+                        INSERT INTO syllabus_retrieval_fts(
+                            syllabus_id, leaf_id, source_type, hierarchy_breadcrumb, title, content, source_page
+                        ) VALUES (:syl_id, :leaf_id, 'student_note', :breadcrumb, :title, :content, '')
+                        """
+                    ),
+                    {
+                        "syl_id": syllabus_id,
+                        "leaf_id": leaf_id,
+                        "breadcrumb": breadcrumb,
+                        "title": title,
+                        "content": content,
+                    },
+                )
+    except Exception:
+        pass
+
+
+def delete_topic_note_fts(session: Session, syllabus_id: str, leaf_id: str) -> None:
+    """Delete a topic note row from FTS5."""
+    ensure_fts_table(session)
+    try:
+        session.execute(
+            text(
+                "DELETE FROM syllabus_retrieval_fts WHERE syllabus_id = :syl_id AND leaf_id = :leaf_id AND source_type = 'student_note'"
+            ),
+            {"syl_id": syllabus_id, "leaf_id": leaf_id},
+        )
+    except Exception:
+        pass
+
+
+# --- Study Flashcards Persistence Helpers ---
+
+def get_study_flashcards(
+    session: Session,
+    syllabus_id: str,
+    leaf_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> List[StudyFlashcard]:
+    """Retrieve flashcards for a syllabus, optionally filtered by leaf_id."""
+    stmt = select(StudyFlashcard).where(StudyFlashcard.syllabus_id == syllabus_id)
+    if leaf_id:
+        stmt = stmt.where(StudyFlashcard.leaf_id == leaf_id)
+    stmt = stmt.order_by(StudyFlashcard.created_at.desc()).offset(offset).limit(limit)
+    return list(session.scalars(stmt).all())
+
+
+def get_study_flashcard(
+    session: Session,
+    syllabus_id: str,
+    card_id: int,
+) -> Optional[StudyFlashcard]:
+    """Retrieve a single flashcard by syllabus_id and card_id."""
+    stmt = select(StudyFlashcard).where(
+        StudyFlashcard.syllabus_id == syllabus_id,
+        StudyFlashcard.id == card_id,
+    )
+    return session.scalars(stmt).first()
+
+
+def create_study_flashcard(
+    session: Session,
+    card: StudyFlashcard,
+) -> StudyFlashcard:
+    """Save a new study flashcard."""
+    session.add(card)
+    session.flush()
+    return card
+
+
+def create_study_flashcards_batch(
+    session: Session,
+    cards: List[StudyFlashcard],
+) -> List[StudyFlashcard]:
+    """Save a batch of study flashcards."""
+    for c in cards:
+        session.add(c)
+    session.flush()
+    return cards
+
+
+def delete_study_flashcard(
+    session: Session,
+    syllabus_id: str,
+    card_id: int,
+) -> bool:
+    """Delete a flashcard by syllabus_id and card_id. Returns True if deleted, False otherwise."""
+    card = get_study_flashcard(session, syllabus_id, card_id)
+    if not card:
+        return False
+    session.delete(card)
+    session.flush()
+    return True
+
 
 
 

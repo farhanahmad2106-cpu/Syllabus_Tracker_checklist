@@ -10,6 +10,8 @@ import type {
   BackupRestoreResult,
   DueRevisionsResponse,
   ExportOptions,
+  FlashcardGenerationResponse,
+  GroundedStudyAnswer,
   HealthResponse,
   IngestUrlPayload,
   PacingMetrics,
@@ -19,6 +21,8 @@ import type {
   ScrapePreview,
   SetTargetDatePayload,
   StartUploadResponse,
+  StudyAssistantRequest,
+  StudyFlashcard,
   SubjectAcademicPlanUpdate,
   SyllabusAnalytics,
   SyllabusComparisonResponse,
@@ -841,4 +845,75 @@ export async function compareSyllabi(
   });
   return handleResponse<SyllabusComparisonResponse>(res);
 }
+
+// --- Phase 13 Cycle B: AI Study Assistant & Grounded Flashcards API ---
+
+export async function askStudyAssistant(
+  syllabusId: string,
+  payload: StudyAssistantRequest,
+  signal?: AbortSignal
+): Promise<GroundedStudyAnswer> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/assistant/ask`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  );
+  return handleResponse<GroundedStudyAnswer>(res);
+}
+
+export async function fetchStudyFlashcards(
+  syllabusId: string,
+  leafId?: string,
+  limit: number = 50,
+  offset: number = 0,
+  signal?: AbortSignal
+): Promise<StudyFlashcard[]> {
+  const params = new URLSearchParams();
+  if (leafId) params.append('leaf_id', leafId);
+  params.append('limit', String(limit));
+  params.append('offset', String(offset));
+  const q = `?${params.toString()}`;
+
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/flashcards${q}`,
+    { signal }
+  );
+  return handleResponse<StudyFlashcard[]>(res);
+}
+
+export async function generateTopicFlashcards(
+  syllabusId: string,
+  leafId: string,
+  signal?: AbortSignal
+): Promise<FlashcardGenerationResponse> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/topics/${encodeURIComponent(leafId)}/flashcards/generate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+    }
+  );
+  return handleResponse<FlashcardGenerationResponse>(res);
+}
+
+export async function deleteStudyFlashcard(
+  syllabusId: string,
+  cardId: number,
+  signal?: AbortSignal
+): Promise<{ deleted: boolean; card_id: number }> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/flashcards/${cardId}`,
+    {
+      method: 'DELETE',
+      signal,
+    }
+  );
+  return handleResponse<{ deleted: boolean; card_id: number }>(res);
+}
+
 

@@ -3,10 +3,10 @@
 
 - **Project:** Hierarchical Syllabus Checklist & Progress Tracker
 - **Document:** `7_MEMORY_RAG.md`
-- **Document Status:** Proposed architectural specification
-- **Architecture Style:** Local-first · SQLite · FTS5 · Optional Ollama Embeddings
+- **Document Status:** Active architectural specification & Implementation Record
+- **Architecture Style:** Local-first · SQLite · FTS5 · Instructor Structured Outputs · Local Ollama
 - **Authority Model:** Source-grounded academic knowledge with reproducible provenance
-- **Implementation Status:** Architecture proposal; implementation and test completion are not assumed.
+- **Implementation Status:** Fully Implemented in Phase 13 Cycle B (FTS5 retrieval virtual table `syllabus_retrieval_fts`, `StudyFlashcard` SQLModel, `study_assistant.py` with zero-hallucination abstention and exact verbatim quote verification, deterministic fallback, SM-2 spaced repetition integration, `StudyAssistantDrawer.tsx`, `FlashcardDeckModal.tsx`, REST API endpoints).
 - **Repository Validation Limitation:** The supplied repository URL could not be independently inspected through the available public search results. Consequently, existing table names, migration versions, source-code paths, dependency versions, and implemented features are explicitly treated as unverified. This specification preserves the supplied project constraints and defines repository inspection as a mandatory implementation prerequisite rather than inventing repository facts.
 
 ---

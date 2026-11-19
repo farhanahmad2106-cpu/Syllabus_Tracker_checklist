@@ -312,6 +312,49 @@
   - Authored frontend component tests in `frontend/src/__tests__/CompareSyllabiModal.test.tsx` and `frontend/src/__tests__/AcademicPlanModal.test.tsx`.
   - Verified static Python syntax compilation across all backend files.
 
+### Phase 13 — Cycle B: AI Study Assistant, Local RAG & Grounded Flashcards [COMPLETED]
+- [x] SQLite FTS5 Full-Text Retrieval Virtual Table:
+  - Created `syllabus_retrieval_fts` virtual table using SQLite FTS5 with `unicode61` tokenizer indexing (`syllabus_id`, `node_id`, `leaf_id`, `source_type`, `title`, `content_text`).
+  - Added atomic index rebuild and sync services: `rebuild_syllabus_fts_index`, `sync_topic_note_fts`, `delete_topic_note_fts`, `delete_syllabus_fts`.
+  - Wired FTS rebuild and synchronization directly into syllabus upload, enrollment finalization, and topic note upsert/delete operations.
+  - Strict unenrolled elective exclusion: Invariant enforced where topics in unenrolled electives (`is_enrolled == False`) are omitted from FTS index and retrieval.
+- [x] Study Flashcard Persistence:
+  - Created `StudyFlashcard` SQLModel table (`study_flashcards`) with columns `id`, `syllabus_id`, `leaf_id`, `front_question`, `back_answer`, `citation_label`, `source_quote`, `source_type`, `source_page`, `created_by`, `fingerprint`, `created_at`.
+  - Added cascading foreign key to `syllabi.id` and index on `(syllabus_id, leaf_id)`.
+  - Added repository CRUD helpers in `backend/app/database.py`: `get_study_flashcards`, `get_study_flashcard`, `create_study_flashcard`, `create_study_flashcards_batch`, `delete_study_flashcard`.
+- [x] Grounded AI Retrieval & Study Assistant Service (`backend/app/services/study_assistant.py`):
+  - `retrieve_grounded_context`: Sanitizes FTS queries, executes BM25-ranked full-text retrieval, filters out unenrolled electives, and returns `EvidenceChunk` dataclasses.
+  - `ask_study_assistant`:
+    - Zero-hallucination abstention: If no evidence is found, returns `answer_state = "insufficient_evidence"` immediately without calling Ollama.
+    - Prompt-injection defense: Wraps untrusted syllabus and note text in boundary tags `<untrusted_syllabus_content>`.
+    - Citation verification: Cross-checks every returned citation against retrieved text to ensure `verbatim_quote` is a strict substring, discarding unverified citations.
+    - Local Ollama invocation with fallback when offline.
+  - `generate_topic_flashcards`:
+    - Generates 3–5 active-recall flashcards grounded in Tier-5 subtopic text and notes using Instructor structured outputs.
+    - Verifies that `source_quote` is a strict substring of the retrieved topic context.
+    - Deduplication fingerprinting prevents duplicate cards from being saved across runs.
+    - Offline fallback (`generate_deterministic_flashcards`): Automatically synthesizes grounded concept and recall cards even when Ollama is offline.
+- [x] Phase 12 Spaced Repetition (SM-2) Integration:
+  - Rating recall on flashcards (1 = Again, 2 = Hard, 3 = Good, 4 = Easy) in `FlashcardDeckModal` submits review ratings directly to `submitRevisionReview(syllabusId, leafId, quality)`, updating the canonical `RevisionSchedule` without duplicate scheduling systems.
+- [x] REST API Endpoints in `backend/app/main.py`:
+  - `POST /api/syllabus/{id}/assistant/ask`: Ask evidence-grounded questions with citations and abstention.
+  - `GET /api/syllabus/{id}/flashcards`: Retrieve study flashcards scoped to syllabus or specific leaf.
+  - `POST /api/syllabus/{id}/topics/{leaf_id}/flashcards/generate`: Generate 3–5 grounded flashcards for a Tier-5 subtopic.
+  - `DELETE /api/syllabus/{id}/flashcards/{card_id}`: Delete an individual flashcard.
+- [x] Accessible Frontend Integration:
+  - Types in `frontend/src/types/syllabus.ts` (`StudyCitation`, `GroundedStudyAnswer`, `StudyAssistantRequest`, `StudyFlashcard`, `FlashcardGenerationResponse`).
+  - Typed client methods in `frontend/src/lib/api.ts` (`askStudyAssistant`, `fetchStudyFlashcards`, `generateTopicFlashcards`, `deleteStudyFlashcard`).
+  - `StudyAssistantDrawer.tsx`: Accessible slide-over drawer with quick suggested questions, status pills (`Fully Grounded`, `Partially Grounded`, `Insufficient Evidence`), citation cards with "View in Tree" deep navigation.
+  - `FlashcardDeckModal.tsx`: Flippable 3D card deck with keyboard shortcuts (Space to flip, 1-4 for SM-2 recall rating, Arrow keys to navigate, Delete to remove), verbatim quotes, source badges, and generation button.
+  - `SyllabusTree.tsx`: Added Flashcard (`Sparkles`) and Ask AI (`Bot`) quick actions to each Tier-5 subtopic leaf row.
+  - `AnalyticsDashboard.tsx`: Added Flashcards button on due revision schedule items.
+  - `CommandPalette.tsx`: Added "Ask Syllabus AI" action and shortcut.
+  - `App.tsx`: Header "Ask AI" button, modal wiring, and hardware back-button stack handling (priorities 1.7 & 1.8).
+- [x] Testing & Verification:
+  - Authored comprehensive backend unit & integration tests in `backend/tests/test_study_assistant.py`.
+  - Authored frontend component tests in `frontend/src/__tests__/StudyAssistantDrawer.test.tsx` and `frontend/src/__tests__/FlashcardDeckModal.test.tsx`.
+  - Verified static Python syntax compilation across all backend files.
+
 ### Current Repository Status
 - Codebase complete, hardened, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.
 - Verified Automated Test Baseline:

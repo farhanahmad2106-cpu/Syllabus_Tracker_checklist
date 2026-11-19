@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   BarChart2,
   BookOpen,
+  Bot,
   Cpu,
   Edit2,
   ExternalLink,
@@ -15,6 +16,7 @@ import {
   RefreshCw,
   Scale,
   Search,
+  Sparkles,
   Sun,
   Trash2,
   X,
@@ -29,8 +31,10 @@ import { EmptyState } from './components/EmptyState';
 import { ErrorMessage } from './components/ErrorMessage';
 import { ExportMenu } from './components/ExportMenu';
 import { FileUpload } from './components/FileUpload';
+import { FlashcardDeckModal } from './components/FlashcardDeckModal';
 import { OfflineStatusBanner } from './components/OfflineStatusBanner';
 import { ProgressBar } from './components/ProgressBar';
+import { StudyAssistantDrawer } from './components/StudyAssistantDrawer';
 import { SyllabusTree } from './components/SyllabusTree';
 import { TopicNotesDrawer } from './components/TopicNotesDrawer';
 import { TopicResourcesModal } from './components/TopicResourcesModal';
@@ -128,6 +132,9 @@ export const App: React.FC = () => {
   const [selectedAcademicSubject, setSelectedAcademicSubject] = useState<Subject | null>(null);
   const [academicPlanData, setAcademicPlanData] = useState<AcademicPlanResponse | null>(null);
   const [isAcademicPlanModalOpen, setIsAcademicPlanModalOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [assistantScope, setAssistantScope] = useState<{ leafId?: string | null; leafTitle?: string | null }>({});
+  const [activeFlashcardLeaf, setActiveFlashcardLeaf] = useState<{ leafId: string; leafTitle: string } | null>(null);
 
   // Fetch academic plan when active syllabus changes
   useEffect(() => {
@@ -222,6 +229,16 @@ export const App: React.FC = () => {
         setIsAcademicPlanModalOpen(false);
         return true;
       }
+      // Priority 1.7: Study Assistant drawer
+      if (isAssistantOpen) {
+        setIsAssistantOpen(false);
+        return true;
+      }
+      // Priority 1.8: Flashcard deck modal
+      if (activeFlashcardLeaf !== null) {
+        setActiveFlashcardLeaf(null);
+        return true;
+      }
       // Priority 2: Confirm delete modal
       if (deletingId !== null) {
         setDeletingId(null);
@@ -260,6 +277,8 @@ export const App: React.FC = () => {
     isCommandPaletteOpen,
     isCompareModalOpen,
     isAcademicPlanModalOpen,
+    isAssistantOpen,
+    activeFlashcardLeaf,
     deletingId,
     activeNoteLeaf,
     closeNoteDrawer,
@@ -490,6 +509,23 @@ export const App: React.FC = () => {
               }`}
             />
           </button>
+
+          {activeSyllabus && (
+            <button
+              type="button"
+              data-testid="ask-ai-header-btn"
+              onClick={() => {
+                setAssistantScope({});
+                setIsAssistantOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-all cursor-pointer"
+              title="Ask AI Study Assistant about your curriculum"
+              aria-label="Ask AI Study Assistant"
+            >
+              <Bot className="w-3.5 h-3.5" />
+              <span>Ask AI</span>
+            </button>
+          )}
 
           {uniqueSyllabi.length >= 2 && (
             <button
@@ -892,6 +928,11 @@ export const App: React.FC = () => {
                   onTargetNodeNavigated={() => setTargetNavNodeId(null)}
                   academicPlansMap={academicPlansMap}
                   onOpenAcademicPlan={handleOpenAcademicPlan}
+                  onOpenFlashcards={(leafId, leafTitle) => setActiveFlashcardLeaf({ leafId, leafTitle })}
+                  onOpenStudyAssistant={(leafId, leafTitle) => {
+                    setAssistantScope({ leafId, leafTitle });
+                    setIsAssistantOpen(true);
+                  }}
                 />
               ) : (
                 <AnalyticsDashboard
@@ -906,6 +947,7 @@ export const App: React.FC = () => {
                   }}
                   academicPlanProp={academicPlanData}
                   onOpenAcademicPlan={handleOpenAcademicPlan}
+                  onOpenFlashcards={(leafId, leafTitle) => setActiveFlashcardLeaf({ leafId, leafTitle })}
                 />
               )}
             </div>
@@ -937,6 +979,10 @@ export const App: React.FC = () => {
         onOpenElectives={() => activeSyllabus && openElectiveModal(activeSyllabus.syllabus.id)}
         onExportMarkdown={handleQuickExportMarkdown}
         onSetTheme={setTheme}
+        onOpenStudyAssistant={() => {
+          setAssistantScope({});
+          setIsAssistantOpen(true);
+        }}
       />
 
       {/* Upload Modal */}
@@ -1061,6 +1107,31 @@ export const App: React.FC = () => {
           subject={selectedAcademicSubject}
           existingPlan={academicPlansMap[selectedAcademicSubject.id] || null}
           onSave={handleSaveAcademicPlan}
+        />
+      )}
+
+      {/* Phase 13 Cycle B: AI Study Assistant Drawer */}
+      <StudyAssistantDrawer
+        isOpen={isAssistantOpen}
+        onClose={() => setIsAssistantOpen(false)}
+        syllabusId={activeSyllabus?.syllabus.id || ''}
+        initialLeafId={assistantScope.leafId}
+        initialLeafTitle={assistantScope.leafTitle}
+        onNavigateToLeaf={(leafId) => {
+          setActiveWorkspaceTab('tree');
+          handleDeepNavigate(leafId);
+        }}
+      />
+
+      {/* Phase 13 Cycle B: Grounded Flashcard Deck Modal */}
+      {activeFlashcardLeaf && activeSyllabus && (
+        <FlashcardDeckModal
+          isOpen={Boolean(activeFlashcardLeaf)}
+          onClose={() => setActiveFlashcardLeaf(null)}
+          syllabusId={activeSyllabus.syllabus.id}
+          leafId={activeFlashcardLeaf.leafId}
+          leafTitle={activeFlashcardLeaf.leafTitle}
+          onRatingSubmitted={refreshList}
         />
       )}
     </div>

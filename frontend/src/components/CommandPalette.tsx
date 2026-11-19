@@ -81,6 +81,7 @@ export interface CommandPaletteProps {
   onOpenElectives?: () => void;
   onExportMarkdown?: () => void;
   onSetTheme?: (theme: 'dark' | 'light' | 'system') => void;
+  onOpenStudyAssistant?: () => void;
 }
 
 // Lightweight fuzzy subsequence match: returns true if all chars in query appear sequentially in target
@@ -112,6 +113,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenElectives,
   onExportMarkdown,
   onSetTheme,
+  onOpenStudyAssistant,
 }) => {
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<QuickFilterType>('all');
@@ -191,6 +193,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         category: 'Quick Actions',
         actionId: 'electives',
         score: 9,
+      });
+
+      items.push({
+        id: 'act_ask_assistant',
+        type: 'action',
+        title: 'Ask Syllabus AI',
+        subtitle: 'Natural-language questions grounded in verified syllabus excerpts',
+        category: 'Quick Actions',
+        actionId: 'ask_assistant',
+        score: 11,
       });
 
       items.push({
@@ -474,6 +486,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       if (item.type === 'action') {
         if (item.actionId === 'import' && onOpenUpload) {
           onOpenUpload();
+        } else if (item.actionId === 'ask_assistant' && onOpenStudyAssistant) {
+          onOpenStudyAssistant();
         } else if (item.actionId === 'electives' && onOpenElectives) {
           onOpenElectives();
         } else if (item.actionId === 'export_md' && onExportMarkdown) {
@@ -517,6 +531,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       onOpenElectives,
       onExportMarkdown,
       onSetTheme,
+      onOpenStudyAssistant,
       onOpenNote,
       onOpenResource,
       onNavigateToNode,

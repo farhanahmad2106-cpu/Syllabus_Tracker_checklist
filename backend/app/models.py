@@ -352,6 +352,76 @@ class SubjectAcademicPlan(SQLModel, table=True):
     )
 
 
+class StudyFlashcard(SQLModel, table=True):
+    """Grounded active-recall flashcard generated from official syllabus or personal notes."""
+    __tablename__ = "study_flashcards"
+    __table_args__ = (
+        Index("ix_study_flashcards_syllabus_leaf", "syllabus_id", "leaf_id"),
+        CheckConstraint("source_type IN ('official_syllabus', 'personal_note')", name="ck_study_flashcards_source_type"),
+        CheckConstraint("created_by IN ('ai_grounded', 'deterministic_fallback', 'manual')", name="ck_study_flashcards_created_by"),
+    )
+
+    id: Optional[int] = DBField(
+        default=None,
+        primary_key=True,
+    )
+
+    syllabus_id: str = DBField(
+        index=True,
+        foreign_key="syllabi.id",
+        ondelete="CASCADE",
+    )
+
+    leaf_id: str = DBField(
+        index=True,
+    )
+
+    front_question: str = DBField(
+        nullable=False,
+    )
+
+    back_answer: str = DBField(
+        nullable=False,
+    )
+
+    citation_label: str = DBField(
+        default="Syllabus Excerpt",
+        nullable=False,
+    )
+
+    source_quote: str = DBField(
+        nullable=False,
+    )
+
+    source_type: str = DBField(
+        default="official_syllabus",
+        description="official_syllabus or personal_note",
+    )
+
+    source_page: Optional[int] = DBField(
+        default=None,
+        nullable=True,
+    )
+
+    created_by: str = DBField(
+        default="ai_grounded",
+        description="ai_grounded, deterministic_fallback, or manual",
+    )
+
+    fingerprint: Optional[str] = DBField(
+        default=None,
+        index=True,
+    )
+
+    created_at: datetime = DBField(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+    updated_at: datetime = DBField(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+
 
 class SyllabusRecord(Base):
     """Stores the canonical syllabus metadata and serialized hierarchy JSON."""
@@ -423,6 +493,12 @@ class SyllabusRecord(Base):
 
     academic_plans = relationship(
         SubjectAcademicPlan,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    flashcards = relationship(
+        StudyFlashcard,
         cascade="all, delete-orphan",
         passive_deletes=True,
     )

@@ -3,6 +3,7 @@ import * as Checkbox from '@radix-ui/react-checkbox';
 import {
   AlertCircle,
   BookOpen,
+  Bot,
   Check,
   ChevronDown,
   FileText,
@@ -11,6 +12,7 @@ import {
   Layers,
   Link2,
   Minus,
+  Sparkles,
 } from 'lucide-react';
 import type {
   AcademicYear,
@@ -46,6 +48,8 @@ export interface SyllabusTreeProps {
   onTargetNodeNavigated?: (nodeId: string) => void;
   academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
   onOpenAcademicPlan?: (subj: Subject) => void;
+  onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
+  onOpenStudyAssistant?: (leafId: string, leafTitle: string) => void;
 }
 
 
@@ -170,6 +174,8 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
   onTargetNodeNavigated,
   academicPlansMap,
   onOpenAcademicPlan,
+  onOpenFlashcards,
+  onOpenStudyAssistant,
 }) => {
   const completedSet = new Set(completedLeafIds);
 
@@ -296,6 +302,8 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
             onOpenResource={onOpenResource}
             academicPlansMap={academicPlansMap}
             onOpenAcademicPlan={onOpenAcademicPlan}
+            onOpenFlashcards={onOpenFlashcards}
+            onOpenStudyAssistant={onOpenStudyAssistant}
           />
         );
       })}
@@ -356,6 +364,8 @@ interface YearCardProps {
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
   academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
   onOpenAcademicPlan?: (subj: Subject) => void;
+  onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
+  onOpenStudyAssistant?: (leafId: string, leafTitle: string) => void;
 }
 
 const YearCard: React.FC<YearCardProps> = ({
@@ -382,6 +392,8 @@ const YearCard: React.FC<YearCardProps> = ({
   onOpenResource,
   academicPlansMap,
   onOpenAcademicPlan,
+  onOpenFlashcards,
+  onOpenStudyAssistant,
 }) => {
   const contentId = `year-content-${year.id}`;
   const isTarget = highlightedNodeId === year.id;
@@ -463,6 +475,8 @@ const YearCard: React.FC<YearCardProps> = ({
               onOpenResource={onOpenResource}
               academicPlansMap={academicPlansMap}
               onOpenAcademicPlan={onOpenAcademicPlan}
+              onOpenFlashcards={onOpenFlashcards}
+              onOpenStudyAssistant={onOpenStudyAssistant}
             />
           ))}
         </div>
@@ -494,6 +508,8 @@ interface SemesterCardProps {
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
   academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
   onOpenAcademicPlan?: (subj: Subject) => void;
+  onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
+  onOpenStudyAssistant?: (leafId: string, leafTitle: string) => void;
 }
 
 const SemesterCard: React.FC<SemesterCardProps> = ({
@@ -516,6 +532,8 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
   onOpenResource,
   academicPlansMap,
   onOpenAcademicPlan,
+  onOpenFlashcards,
+  onOpenStudyAssistant,
 }) => {
   const semLeaves = getSemesterLeaves(sem);
   const semState = getBranchState(semLeaves);
@@ -612,6 +630,8 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
               onOpenResource={onOpenResource}
               academicPlansMap={academicPlansMap}
               onOpenAcademicPlan={onOpenAcademicPlan}
+              onOpenFlashcards={onOpenFlashcards}
+              onOpenStudyAssistant={onOpenStudyAssistant}
             />
           ))}
         </div>
@@ -643,6 +663,8 @@ interface SubjectCardProps {
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
   academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
   onOpenAcademicPlan?: (subj: Subject) => void;
+  onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
+  onOpenStudyAssistant?: (leafId: string, leafTitle: string) => void;
 }
 
 const SubjectCard: React.FC<SubjectCardProps> = ({
@@ -665,6 +687,8 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   onOpenResource,
   academicPlansMap,
   onOpenAcademicPlan,
+  onOpenFlashcards,
+  onOpenStudyAssistant,
 }) => {
   const isEnrolled = isSubjectEnrolled(subj);
   const subjLeaves = getSubjectLeaves(subj, isEnrolled);
@@ -843,6 +867,8 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
               onOpenResource={onOpenResource}
               academicPlansMap={academicPlansMap}
               onOpenAcademicPlan={onOpenAcademicPlan}
+              onOpenFlashcards={onOpenFlashcards}
+              onOpenStudyAssistant={onOpenStudyAssistant}
             />
           ))}
         </div>
@@ -869,6 +895,8 @@ interface ModuleCardProps {
   resourceCounts?: Record<string, number>;
   onOpenNote?: (leafId: string, leafTitle: string) => void;
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
+  onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
+  onOpenStudyAssistant?: (leafId: string, leafTitle: string) => void;
 }
 
 const ModuleCard: React.FC<ModuleCardProps> = ({
@@ -886,6 +914,8 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
   resourceCounts,
   onOpenNote,
   onOpenResource,
+  onOpenFlashcards,
+  onOpenStudyAssistant,
 }) => {
   const modLeaves = getModuleLeaves(mod);
   const modState = getBranchState(modLeaves);
@@ -1024,6 +1054,8 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
               resourceCount={resourceCounts ? resourceCounts[topic.id] || 0 : 0}
               onOpenNote={onOpenNote}
               onOpenResource={onOpenResource}
+              onOpenFlashcards={onOpenFlashcards}
+              onOpenStudyAssistant={onOpenStudyAssistant}
             />
           ))}
         </div>
@@ -1045,6 +1077,8 @@ interface TopicLeafRowProps {
   resourceCount?: number;
   onOpenNote?: (leafId: string, leafTitle: string) => void;
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
+  onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
+  onOpenStudyAssistant?: (leafId: string, leafTitle: string) => void;
 }
 
 const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
@@ -1057,6 +1091,8 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
   resourceCount = 0,
   onOpenNote,
   onOpenResource,
+  onOpenFlashcards,
+  onOpenStudyAssistant,
 }) => {
   const checkboxId = useId();
   const isTarget = highlightedNodeId === topic.id;
@@ -1155,6 +1191,38 @@ const TopicLeafRow: React.FC<TopicLeafRowProps> = ({
           >
             <Link2 className="w-3.5 h-3.5" />
             {resourceCount > 0 && <span className="font-semibold text-[9px] tabular-nums">{resourceCount}</span>}
+          </button>
+        )}
+
+        {onOpenFlashcards && (
+          <button
+            type="button"
+            data-testid={`flashcards-btn-${topic.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFlashcards(topic.id, topic.title);
+            }}
+            className="min-h-[44px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1 rounded-md text-[var(--text-muted)] hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors cursor-pointer flex items-center justify-center focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
+            title="Active Recall Flashcards"
+            aria-label={`Flashcards for ${topic.title}`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {onOpenStudyAssistant && (
+          <button
+            type="button"
+            data-testid={`ask-assistant-btn-${topic.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenStudyAssistant(topic.id, topic.title);
+            }}
+            className="min-h-[44px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1 rounded-md text-[var(--text-muted)] hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer flex items-center justify-center focus:outline-hidden focus:ring-2 focus:ring-emerald-500/50"
+            title="Ask AI about this topic"
+            aria-label={`Ask AI about ${topic.title}`}
+          >
+            <Bot className="w-3.5 h-3.5" />
           </button>
         )}
 

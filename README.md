@@ -367,6 +367,10 @@ VITE_API_BASE_URL="https://your-api-domain.com/api" npm run cap:ios
 | `GET` | `/api/syllabus/{id}/academic-plan` | Retrieve academic plan (effective credits, completed credits, proportional earned estimate, target SGPA/CGPA) |
 | `PUT` | `/api/syllabus/{id}/subjects/{subject_id}/academic-plan` | Upsert subject credit override, target grade points, and grade scale |
 | `POST` | `/api/syllabi/compare` | Compare 2 to 4 syllabi side-by-side with curriculum metrics and shared courses |
+| `POST` | `/api/syllabus/{id}/assistant/ask` | AI study assistant grounded retrieval with exact citations, prompt-injection defense, and abstention |
+| `GET` | `/api/syllabus/{id}/flashcards` | Retrieve grounded study flashcards (optionally filtered by `leaf_id`) |
+| `POST` | `/api/syllabus/{id}/topics/{leaf_id}/flashcards/generate` | Generate 3–5 grounded active-recall flashcards for a Tier-5 subtopic |
+| `DELETE` | `/api/syllabus/{id}/flashcards/{card_id}` | Delete an individual study flashcard |
 
 ---
 

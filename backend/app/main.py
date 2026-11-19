@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import settings
 from backend.app.database import (
     add_topic_resource,
+    delete_study_flashcard,
     delete_syllabus,
     delete_target_deadline,
     delete_topic_note,
@@ -29,6 +30,8 @@ from backend.app.database import (
     get_all_syllabus_resources,
     get_completed_leaf_ids,
     get_db,
+    get_study_flashcard,
+    get_study_flashcards,
     get_syllabus_record,
     get_syllabus_review,
     get_target_deadline,
@@ -84,6 +87,8 @@ from backend.app.schemas import (
     EmbeddedDocumentPreview,
     ExportOptions,
     FinalizeEnrollmentRequest,
+    FlashcardGenerationResponse,
+    GroundedStudyAnswer,
     HierarchicalSyllabus,
     IngestUrlRequest,
     JobProgressResponse,
@@ -98,6 +103,9 @@ from backend.app.schemas import (
     ScrapePreviewResponse,
     SetTargetDateRequest,
     StartUploadResponse,
+    StudyAssistantRequest,
+    StudyCitation,
+    StudyFlashcardResponse,
     Subject,
     SubjectAcademicPlanItem,
     SubjectAcademicPlanUpdate,
@@ -114,6 +122,10 @@ from backend.app.parser import validate_file_metadata
 from backend.app.services.academic_planner import (
     compare_syllabi,
     compute_credit_and_gpa_plan,
+)
+from backend.app.services.study_assistant import (
+    ask_study_assistant,
+    generate_topic_flashcards,
 )
 
 from backend.app.services.analytics import (
@@ -1683,6 +1695,106 @@ def compare_syllabi_endpoint(
 ):
     """Compare between 2 and 4 syllabi across curriculum structure, completion, lab ratio, and credits."""
     return compare_syllabi(session=session, syllabus_ids=payload.syllabus_ids)
+
+
+# ===========================================================================
+# Phase 13 Cycle B: AI Study Assistant & Grounded Flashcards Endpoints
+# ===========================================================================
+
+
+@app.post(
+    "/api/syllabus/{syllabus_id}/assistant/ask",
+    response_model=GroundedStudyAnswer,
+)
+def ask_study_assistant_endpoint(
+    syllabus_id: str,
+    payload: StudyAssistantRequest,
+    session: Session = Depends(get_db),
+):
+    """Ask a natural-language question grounded in official syllabus excerpts and student notes."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+    return ask_study_assistant(session=session, syllabus_id=syllabus_id, request=payload)
+
+
+@app.get(
+    "/api/syllabus/{syllabus_id}/flashcards",
+    response_model=List[StudyFlashcardResponse],
+)
+def get_study_flashcards_endpoint(
+    syllabus_id: str,
+    leaf_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db),
+):
+    """Retrieve saved active-recall study flashcards with citation provenance."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+    cards = get_study_flashcards(session=session, syllabus_id=syllabus_id, leaf_id=leaf_id, limit=limit, offset=offset)
+    return [
+        StudyFlashcardResponse(
+            id=c.id or 0,
+            syllabus_id=c.syllabus_id,
+            leaf_id=c.leaf_id,
+            front_question=c.front_question,
+            back_answer=c.back_answer,
+            citation_label=c.citation_label,
+            source_quote=c.source_quote,
+            source_type=c.source_type,  # type: ignore[arg-type]
+            source_page=c.source_page,
+            created_by=c.created_by,  # type: ignore[arg-type]
+            created_at=c.created_at.isoformat(),
+        )
+        for c in cards
+    ]
+
+
+@app.post(
+    "/api/syllabus/{syllabus_id}/topics/{leaf_id}/flashcards/generate",
+    response_model=FlashcardGenerationResponse,
+)
+def generate_topic_flashcards_endpoint(
+    syllabus_id: str,
+    leaf_id: str,
+    session: Session = Depends(get_db),
+):
+    """Generate 3 to 5 grounded active-recall flashcards for a specific Tier-5 subtopic leaf."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+    try:
+        res = generate_topic_flashcards(session=session, syllabus_id=syllabus_id, leaf_id=leaf_id)
+        session.commit()
+        return res
+    except Exception:
+        session.rollback()
+        raise
+
+
+@app.delete(
+    "/api/syllabus/{syllabus_id}/flashcards/{card_id}",
+)
+def delete_study_flashcard_endpoint(
+    syllabus_id: str,
+    card_id: int,
+    session: Session = Depends(get_db),
+):
+    """Delete an individual study flashcard."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+    success = delete_study_flashcard(session=session, syllabus_id=syllabus_id, card_id=card_id)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Flashcard '{card_id}' not found for syllabus '{syllabus_id}'",
+        )
+    session.commit()
+    return {"deleted": True, "card_id": card_id}
+
 
 
 

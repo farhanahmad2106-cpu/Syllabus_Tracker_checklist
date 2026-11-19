@@ -44,6 +44,7 @@ interface AnalyticsDashboardProps {
   onReviewCompleted?: () => void;
   onOpenAcademicPlan?: (subj: Subject) => void;
   academicPlanProp?: AcademicPlanResponse | null;
+  onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
 }
 
 
@@ -57,6 +58,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   onReviewCompleted,
   onOpenAcademicPlan: _onOpenAcademicPlan,
   academicPlanProp,
+  onOpenFlashcards,
 }) => {
   const [analytics, setAnalytics] = useState<SyllabusAnalytics | null>(null);
   const [dueRevisions, setDueRevisions] = useState<DueRevisionItem[]>([]);
@@ -754,6 +756,18 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             ? `${item.resource_count} Resources`
                             : 'Resources'}
                         </span>
+                      </button>
+                    )}
+
+                    {onOpenFlashcards && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenFlashcards(item.leaf_id, item.leaf_title)}
+                        className="inline-flex items-center gap-1 text-[var(--text-secondary)] hover:text-indigo-400 transition-colors cursor-pointer"
+                        title="Practice flashcards for this topic"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Flashcards</span>
                       </button>
                     )}
                   </div>

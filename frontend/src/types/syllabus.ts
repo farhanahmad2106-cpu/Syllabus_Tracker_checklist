@@ -574,6 +574,50 @@ export interface SyllabusComparisonResponse {
   compared_at: string;
 }
 
+export interface StudyCitation {
+  leaf_id: string;
+  authority: 'official_syllabus' | 'personal_note';
+  source_page?: number | null;
+  citation_label: string;
+  source_quote: string;
+}
+
+export interface GroundedStudyAnswer {
+  answer_state: 'supported' | 'partial' | 'insufficient_evidence';
+  answer_markdown: string;
+  citations: StudyCitation[];
+}
+
+export interface StudyAssistantRequest {
+  question: string;
+  leaf_id?: string | null;
+  subject_id?: string | null;
+}
+
+export interface StudyFlashcard {
+  id: number;
+  syllabus_id: string;
+  leaf_id: string;
+  front_question: string;
+  back_answer: string;
+  citation_label: string;
+  source_quote: string;
+  source_type: 'official_syllabus' | 'personal_note';
+  source_page?: number | null;
+  created_by: 'ai_grounded' | 'deterministic_fallback' | 'manual';
+  created_at: string;
+}
+
+export interface FlashcardGenerationResponse {
+  syllabus_id: string;
+  leaf_id: string;
+  cards: StudyFlashcard[];
+  generation_mode: 'ai_grounded' | 'deterministic_fallback';
+  count: number;
+  warnings?: string[];
+}
+
+
 
 
 

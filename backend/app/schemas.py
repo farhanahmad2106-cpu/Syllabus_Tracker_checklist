@@ -1173,4 +1173,102 @@ class SyllabusComparisonResponse(BaseModel):
     compared_at: str
 
 
+# ===========================================================================
+# Phase 13 Cycle B: AI Study Assistant, Local RAG & Flashcard Schemas
+# ===========================================================================
+
+
+class StudyCitation(BaseModel):
+    """Verifiable source evidence citation grounded in official syllabus or student notes."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    leaf_id: str = Field(..., description="Stable unique ID of the Tier-5 subtopic leaf")
+    authority: Literal["official_syllabus", "personal_note"] = Field(
+        ..., description="Provenance category of the supporting evidence"
+    )
+    source_page: Optional[int] = Field(
+        default=None, description="1-based page number if supported by official syllabus"
+    )
+    citation_label: str = Field(
+        ..., description="Human-readable citation label (e.g. 'Syllabus Excerpt (p. 4)' or 'Personal Note')"
+    )
+    source_quote: str = Field(
+        ..., description="Exact verbatim substring quotation from the source evidence"
+    )
+
+
+class GroundedStudyAnswer(BaseModel):
+    """Evidence-grounded structured response from the AI Study Assistant."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    answer_state: Literal["supported", "partial", "insufficient_evidence"] = Field(
+        ..., description="Verified grounding status of the answer"
+    )
+    answer_markdown: str = Field(
+        ..., description="Explanation or answer text formatted in GitHub-flavored Markdown"
+    )
+    citations: List[StudyCitation] = Field(
+        default_factory=list, description="Verified source citations supporting the claims"
+    )
+
+
+class StudyAssistantRequest(BaseModel):
+    """User query payload for the AI Study Assistant."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    question: str = Field(..., min_length=1, max_length=2000, description="Natural-language study question")
+    leaf_id: Optional[str] = Field(default=None, description="Optional Tier-5 leaf identifier to scope retrieval")
+    subject_id: Optional[str] = Field(default=None, description="Optional Tier-3 subject identifier to scope retrieval")
+
+
+class StudyFlashcardResponse(BaseModel):
+    """Saved study flashcard item with provenance."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    id: int
+    syllabus_id: str
+    leaf_id: str
+    front_question: str
+    back_answer: str
+    citation_label: str
+    source_quote: str
+    source_type: Literal["official_syllabus", "personal_note"]
+    source_page: Optional[int] = None
+    created_by: Literal["ai_grounded", "deterministic_fallback", "manual"]
+    created_at: str
+
+
+class FlashcardGenerationResponse(BaseModel):
+    """Result of generating flashcards for a specific Tier-5 leaf."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    syllabus_id: str
+    leaf_id: str
+    cards: List[StudyFlashcardResponse]
+    generation_mode: Literal["ai_grounded", "deterministic_fallback"]
+    count: int
+    warnings: List[str] = Field(default_factory=list)
+
+
+class GeneratedFlashcardItem(BaseModel):
+    """Instructor structured generation schema for a single flashcard."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    front_question: str = Field(..., description="Active-recall conceptual question based strictly on evidence")
+    back_answer: str = Field(..., description="Concise, direct grounded answer based strictly on evidence")
+    source_quote: str = Field(..., description="Verbatim exact quotation from the provided evidence")
+    source_type: Literal["official_syllabus", "personal_note"] = Field(..., description="official_syllabus or personal_note")
+    source_page: Optional[int] = Field(default=None, description="Page number of the quote if from syllabus, or null")
+
+
+class FlashcardBatchSchema(BaseModel):
+    """Instructor structured generation schema for 3 to 5 flashcards."""
+    model_config = ConfigDict(strict=False, extra="forbid")
+
+    cards: List[GeneratedFlashcardItem] = Field(
+        ..., min_length=1, max_length=5, description="List of 3 to 5 grounded active recall flashcards"
+    )
+
+
+
 
