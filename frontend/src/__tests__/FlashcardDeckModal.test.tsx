@@ -63,11 +63,11 @@ describe('FlashcardDeckModal Component', () => {
       />
     );
 
-    expect(screen.getByText('Virtual Memory and Paging')).toBeInTheDocument();
+    expect(screen.getByText(/Virtual Memory and Paging/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(api.fetchStudyFlashcards).toHaveBeenCalledWith(mockSyllabusId, mockLeafId);
-      expect(screen.getByText('Card 1 of 2')).toBeInTheDocument();
+      expect(screen.getByText(/Card 1 of 2/i)).toBeInTheDocument();
       expect(
         screen.getByText('What is the purpose of Paging in memory management?')
       ).toBeInTheDocument();
@@ -89,12 +89,10 @@ describe('FlashcardDeckModal Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Card 1 of 2')).toBeInTheDocument();
+      expect(screen.getByText(/Card 1 of 2/i)).toBeInTheDocument();
     });
 
-    const cardContainer = screen.getByRole('button', {
-      name: /Flip card/i,
-    });
+    const cardContainer = screen.getByTestId('flashcard-surface');
     fireEvent.click(cardContainer);
 
     expect(
@@ -103,7 +101,7 @@ describe('FlashcardDeckModal Component', () => {
     expect(
       screen.getByText(/Paging is a memory management scheme that eliminates contiguous allocation/i)
     ).toBeInTheDocument();
-    expect(screen.getByText('official_syllabus')).toBeInTheDocument();
+    expect(screen.getByText('CS301 > Memory Management')).toBeInTheDocument();
   });
 
   it('allows rating recall with SM-2 shortcuts and submits review', async () => {
@@ -135,11 +133,11 @@ describe('FlashcardDeckModal Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Card 1 of 2')).toBeInTheDocument();
+      expect(screen.getByText(/Card 1 of 2/i)).toBeInTheDocument();
     });
 
     // Flip first
-    const cardContainer = screen.getByRole('button', { name: /Flip card/i });
+    const cardContainer = screen.getByTestId('flashcard-surface');
     fireEvent.click(cardContainer);
 
     // Rating buttons are now visible: Again (1), Hard (2), Good (3), Easy (4)
@@ -149,7 +147,7 @@ describe('FlashcardDeckModal Component', () => {
     await waitFor(() => {
       expect(api.submitRevisionReview).toHaveBeenCalledWith(mockSyllabusId, mockLeafId, { quality: 4 });
       expect(onRatingSubmitted).toHaveBeenCalled();
-      expect(screen.getByText('Card 2 of 2')).toBeInTheDocument();
+      expect(screen.getByText(/Card 2 of 2/i)).toBeInTheDocument();
     });
   });
 
@@ -176,7 +174,7 @@ describe('FlashcardDeckModal Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('No Flashcards for this Topic')).toBeInTheDocument();
+      expect(screen.getByText(/No flashcards yet/i)).toBeInTheDocument();
     });
 
     const generateBtn = screen.getByRole('button', { name: /Generate Grounded Flashcards/i });
@@ -184,7 +182,7 @@ describe('FlashcardDeckModal Component', () => {
 
     await waitFor(() => {
       expect(api.generateTopicFlashcards).toHaveBeenCalledWith(mockSyllabusId, mockLeafId);
-      expect(screen.getByText('Card 1 of 2')).toBeInTheDocument();
+      expect(screen.getByText(/Card 1 of 2/i)).toBeInTheDocument();
     });
   });
 
@@ -203,15 +201,15 @@ describe('FlashcardDeckModal Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Card 1 of 2')).toBeInTheDocument();
+      expect(screen.getByText(/Card 1 of 2/i)).toBeInTheDocument();
     });
 
-    const deleteBtn = screen.getByTitle('Delete flashcard');
+    const deleteBtn = screen.getByTitle('Delete this flashcard');
     fireEvent.click(deleteBtn);
 
     await waitFor(() => {
       expect(api.deleteStudyFlashcard).toHaveBeenCalledWith(mockSyllabusId, 1);
-      expect(screen.getByText('Card 1 of 1')).toBeInTheDocument();
+      expect(screen.getByText(/Card 1 of 1/i)).toBeInTheDocument();
     });
   });
 });

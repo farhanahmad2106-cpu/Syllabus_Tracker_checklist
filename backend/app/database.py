@@ -4,7 +4,7 @@ import json
 import os
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
-from typing import Generator, List, Optional, Set, Tuple
+from typing import Any, Generator, List, Optional, Set, Tuple
 
 from sqlalchemy import create_engine, event, select, delete, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -923,11 +923,22 @@ def upsert_subject_academic_plan(
     session: Session,
     syllabus_id: str,
     subject_id: str,
-    credit_override: Optional[float] = None,
+    credit_override: Any = None,
     target_grade_points: Optional[float] = None,
     grade_scale: str = "10.0",
 ) -> SubjectAcademicPlan:
     """Create or update an academic plan record for a subject."""
+    if hasattr(credit_override, "credit_override"):
+        plan_obj = credit_override
+        credit_override = plan_obj.credit_override
+        target_grade_points = plan_obj.target_grade_points
+        grade_scale = getattr(plan_obj, "grade_scale", None) or grade_scale
+    elif isinstance(credit_override, dict):
+        plan_dict = credit_override
+        credit_override = plan_dict.get("credit_override")
+        target_grade_points = plan_dict.get("target_grade_points")
+        grade_scale = plan_dict.get("grade_scale", grade_scale)
+
     now = datetime.now(timezone.utc)
     rec = get_subject_academic_plan(session, syllabus_id, subject_id)
     if rec:

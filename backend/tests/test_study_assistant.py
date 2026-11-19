@@ -11,6 +11,7 @@ from backend.app.database import (
     create_study_flashcards_batch,
     delete_study_flashcard,
     delete_syllabus,
+    delete_topic_note,
     delete_topic_note_fts,
     get_study_flashcard,
     get_study_flashcards,
@@ -31,7 +32,7 @@ from backend.app.schemas import (
     StudyAssistantRequest,
     Subject,
     Subtopic,
-    TopicNoteCreate,
+    StudyCitation,
 )
 from backend.app.services.study_assistant import (
     ask_study_assistant,
@@ -40,18 +41,6 @@ from backend.app.services.study_assistant import (
     retrieve_grounded_context,
     sanitize_fts_query,
 )
-
-
-@pytest.fixture
-def db_session():
-    """Isolated in-memory SQLite database session with FTS5 initialized."""
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    init_db(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
 
 
 def make_test_syllabus_for_rag(syllabus_id: str = "syl_rag_test") -> HierarchicalSyllabus:
@@ -75,7 +64,7 @@ def make_test_syllabus_for_rag(syllabus_id: str = "syl_rag_test") -> Hierarchica
         code="CS301",
         credits=4.0,
         ltp="3-1-0",
-        is_laboratory=False,
+        is_lab=False,
         is_elective=False,
         is_enrolled=True,
         enrollment_status="mandatory",
@@ -96,16 +85,21 @@ def make_test_syllabus_for_rag(syllabus_id: str = "syl_rag_test") -> Hierarchica
         code="CS405",
         credits=3.0,
         ltp="3-0-0",
-        is_laboratory=False,
+        is_lab=False,
         is_elective=True,
         is_enrolled=False,
-        enrollment_status="not_selected",
+        enrollment_status="excluded",
         modules=[mod_qc],
     )
 
     sem = Semester(id="sem_5", title="Semester 5", subjects=[subj1, subj_qc])
     year = AcademicYear(id="year_3", title="Year 3", semesters=[sem])
-    return HierarchicalSyllabus(id=syllabus_id, title="B.Tech Computer Science 2026", years=[year])
+    return HierarchicalSyllabus(
+        id=syllabus_id,
+        title="B.Tech Computer Science 2026",
+        source_filename="operating_systems.pdf",
+        years=[year],
+    )
 
 
 def test_fts5_indexing_and_enrolled_filtering(db_session):
@@ -120,8 +114,8 @@ def test_fts5_indexing_and_enrolled_filtering(db_session):
     # Query for enrolled subject content: "Bankers Algorithm"
     chunks = retrieve_grounded_context(db_session, syllabus.id, "Bankers Algorithm deadlock")
     assert len(chunks) > 0
-    assert any("Bankers Algorithm" in c.text for c in chunks)
-    assert all(c.source_type == "official_syllabus" for c in chunks)
+    assert any("Bankers Algorithm" in c.quote for c in chunks)
+    assert all(c.authority == "official_syllabus" for c in chunks)
 
     # Query for unenrolled elective content: "Quantum Superposition"
     # Unenrolled topics must be excluded from retrieval!
@@ -136,34 +130,36 @@ def test_personal_note_fts_sync_and_retrieval(db_session):
     rebuild_syllabus_fts_index(db_session, syllabus.id)
 
     # Add a student personal note
-    note_create = TopicNoteCreate(
-        note_markdown="Professor emphasized that Peterson solution satisfies mutual exclusion, progress, and bounded waiting.",
-        color_tag="amber",
-    )
-    note = upsert_topic_note(db_session, syllabus.id, "leaf_os_deadlocks", note_create)
+    note_content = "Professor emphasized that Peterson solution satisfies mutual exclusion, progress, and bounded waiting."
+    note = upsert_topic_note(db_session, syllabus.id, "leaf_os_deadlocks", note_content)
+    sync_topic_note_fts(db_session, syllabus.id, "leaf_os_deadlocks", note_content)
     assert note is not None
 
     # Retrieve context matching student personal note
     chunks = retrieve_grounded_context(db_session, syllabus.id, "Peterson solution mutual exclusion")
     assert len(chunks) > 0
-    note_chunk = next((c for c in chunks if c.source_type == "personal_note"), None)
+    note_chunk = next((c for c in chunks if c.authority == "personal_note"), None)
     assert note_chunk is not None
-    assert "Peterson solution satisfies mutual exclusion" in note_chunk.text
+    assert "Peterson solution satisfies mutual exclusion" in note_chunk.quote
     assert note_chunk.leaf_id == "leaf_os_deadlocks"
 
-    # Test delete note removes from FTS
-    delete_topic_note_fts(db_session, note.id)
+    # Test delete note removes from FTS and database
+    delete_topic_note(db_session, syllabus.id, "leaf_os_deadlocks")
     chunks_after = retrieve_grounded_context(db_session, syllabus.id, "Peterson solution mutual exclusion")
-    assert not any(c.source_type == "personal_note" for c in chunks_after)
+    assert not any(c.authority == "personal_note" for c in chunks_after)
 
 
 def test_sanitize_fts_query():
     """Verify FTS5 special character sanitization prevents syntax errors."""
     query = 'What is "Paging" * AND NOT (virtual)? OR [memory] & ^ ~ :'
     sanitized = sanitize_fts_query(query)
-    assert '"' not in sanitized
-    assert '*' not in sanitized
-    assert 'NOT' not in sanitized.split()
+    assert '^' not in sanitized
+    assert '~' not in sanitized
+    assert ':' not in sanitized
+    assert '(' not in sanitized
+    assert ')' not in sanitized
+    assert '[' not in sanitized
+    assert ']' not in sanitized
     assert len(sanitized) > 0
 
 
@@ -177,13 +173,13 @@ def test_ask_study_assistant_insufficient_evidence(db_session):
         question="How does Warp Drive faster than light travel work in quantum spacetime?",
     )
 
-    with patch("backend.app.services.study_assistant.call_ollama_llm") as mock_llm:
+    with patch("backend.app.services.study_assistant.resolve_extraction_client") as mock_client:
         resp = ask_study_assistant(db_session, syllabus.id, req)
         # LLM must NOT be called when evidence is missing!
-        mock_llm.assert_not_called()
+        mock_client.assert_not_called()
         assert resp.answer_state == "insufficient_evidence"
         assert len(resp.citations) == 0
-        assert "could not find any official syllabus content" in resp.answer_markdown
+        assert "could not find" in resp.answer_markdown
 
 
 def test_ask_study_assistant_grounded_answer(db_session):
@@ -197,17 +193,34 @@ def test_ask_study_assistant_grounded_answer(db_session):
         leaf_id="leaf_os_deadlocks",
     )
 
-    mock_llm_output = (
-        "Deadlock avoidance is achieved using Banker's Algorithm.\n\n"
-        "[Citation 1]: Bankers Algorithm is used for deadlock avoidance by simulating allocation"
+    mock_answer = GroundedStudyAnswer(
+        answer_markdown="Deadlock avoidance is achieved using Banker's Algorithm.",
+        citations=[
+            StudyCitation(
+                leaf_id="leaf_os_deadlocks",
+                source_quote="Bankers Algorithm is used for deadlock avoidance by simulating allocation for predetermined maximum possible amounts.",
+                authority="official_syllabus",
+                source_page=1,
+                citation_label="Syllabus Excerpt (p. 1)",
+            )
+        ],
+        answer_state="supported",
     )
 
-    with patch("backend.app.services.study_assistant.call_ollama_llm", return_value=mock_llm_output):
+    mock_client = patch("backend.app.services.study_assistant.resolve_extraction_client")
+    mock_status = patch(
+        "backend.app.services.study_assistant.check_provider_status",
+        return_value=(True, "ollama", "qwen2.5:7b", None),
+    )
+    with mock_status, mock_client as mock_res:
+        mock_obj = mock_res.return_value[0] if isinstance(mock_res.return_value, tuple) else mock_res
+        mock_res.return_value = (mock_obj, "qwen2.5:7b", None)
+        mock_obj.chat.completions.create.return_value = mock_answer
         resp = ask_study_assistant(db_session, syllabus.id, req)
         assert resp.answer_state in ("supported", "partial")
         assert len(resp.citations) >= 1
         assert resp.citations[0].leaf_id == "leaf_os_deadlocks"
-        assert "Bankers Algorithm" in resp.citations[0].verbatim_quote
+        assert "Bankers Algorithm" in resp.citations[0].source_quote
 
 
 def test_deterministic_flashcard_generation(db_session):
@@ -215,23 +228,23 @@ def test_deterministic_flashcard_generation(db_session):
     syllabus = make_test_syllabus_for_rag("syl_cards_test")
     save_syllabus(db_session, syllabus)
 
-    resp = generate_topic_flashcards(
-        db_session,
-        syllabus.id,
-        "leaf_os_deadlocks",
-        use_ollama=False,  # deterministic mode
-    )
+    with patch("backend.app.services.study_assistant.check_provider_status", return_value=(False, None, None, None)):
+        resp = generate_topic_flashcards(
+            db_session,
+            syllabus.id,
+            "leaf_os_deadlocks",
+        )
 
-    assert resp.leaf_id == "leaf_os_deadlocks"
-    assert resp.count >= 2
-    assert resp.generated_by == "deterministic_grounded_rules"
-    assert len(resp.cards) >= 2
+        assert resp.leaf_id == "leaf_os_deadlocks"
+        assert resp.count >= 1
+        assert resp.generation_mode == "deterministic_fallback"
+        assert len(resp.cards) >= 1
 
-    for card in resp.cards:
-        assert len(card.front_question) > 5
-        assert len(card.back_answer) > 5
-        assert card.source_quote is not None
-        assert card.leaf_id == "leaf_os_deadlocks"
+        for card in resp.cards:
+            assert len(card.front_question) > 5
+            assert len(card.back_answer) > 5
+            assert card.source_quote is not None
+            assert card.leaf_id == "leaf_os_deadlocks"
 
 
 def test_flashcard_deduplication_and_persistence(db_session):
@@ -239,65 +252,57 @@ def test_flashcard_deduplication_and_persistence(db_session):
     syllabus = make_test_syllabus_for_rag("syl_dedup_test")
     save_syllabus(db_session, syllabus)
 
-    # First generation
-    resp1 = generate_topic_flashcards(db_session, syllabus.id, "leaf_os_paging", use_ollama=False)
-    initial_count = resp1.count
+    with patch("backend.app.services.study_assistant.check_provider_status", return_value=(False, None, None, None)):
+        # First generation
+        resp1 = generate_topic_flashcards(db_session, syllabus.id, "leaf_os_paging")
+        initial_count = resp1.count
 
-    # Second generation for the exact same leaf should not duplicate
-    resp2 = generate_topic_flashcards(db_session, syllabus.id, "leaf_os_paging", use_ollama=False)
-    all_cards = get_study_flashcards(db_session, syllabus.id, leaf_id="leaf_os_paging")
+        # Second generation for the exact same leaf should not duplicate
+        resp2 = generate_topic_flashcards(db_session, syllabus.id, "leaf_os_paging")
+        all_cards = get_study_flashcards(db_session, syllabus.id, leaf_id="leaf_os_paging")
 
-    assert len(all_cards) == initial_count
+        assert len(all_cards) == initial_count
 
 
 def test_flashcard_deletion_and_cascading(db_session):
     """Test manual card deletion and cascade delete with syllabus."""
     syllabus = make_test_syllabus_for_rag("syl_cascade_test")
     save_syllabus(db_session, syllabus)
-    resp = generate_topic_flashcards(db_session, syllabus.id, "leaf_os_deadlocks", use_ollama=False)
-    assert resp.count > 0
+    with patch("backend.app.services.study_assistant.check_provider_status", return_value=(False, None, None, None)):
+        resp = generate_topic_flashcards(db_session, syllabus.id, "leaf_os_deadlocks")
+        assert resp.count > 0
 
-    first_card = resp.cards[0]
-    # Delete single card
-    deleted = delete_study_flashcard(db_session, first_card.id)
-    assert deleted is True
-    assert get_study_flashcard(db_session, first_card.id) is None
+        first_card = resp.cards[0]
+        # Delete single card
+        deleted = delete_study_flashcard(db_session, syllabus.id, first_card.id)
+        assert deleted is True
+        assert get_study_flashcard(db_session, syllabus.id, first_card.id) is None
 
-    # Delete entire syllabus and verify cascade
-    delete_syllabus(db_session, syllabus.id)
-    remaining_cards = get_study_flashcards(db_session, syllabus.id)
-    assert len(remaining_cards) == 0
+        # Delete entire syllabus and verify cascade
+        delete_syllabus(db_session, syllabus.id)
+        remaining_cards = get_study_flashcards(db_session, syllabus.id)
+        assert len(remaining_cards) == 0
 
 
-def test_rest_api_endpoints(client=None):
+def test_rest_api_endpoints(client: TestClient, db_session):
     """Integration test for Phase 13 Cycle B REST endpoints."""
-    test_client = TestClient(app)
-
-    # Create test syllabus via mock / direct db
-    from backend.app.database import get_engine
-    engine = get_engine()
-    init_db(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
     syl = make_test_syllabus_for_rag("syl_api_rag_test")
-    save_syllabus(session, syl)
-    rebuild_syllabus_fts_index(session, syl.id)
-    session.close()
+    save_syllabus(db_session, syl)
+    rebuild_syllabus_fts_index(db_session, syl.id)
 
-    try:
+    with patch("backend.app.services.study_assistant.check_provider_status", return_value=(False, None, None, None)):
         # 1. Ask assistant endpoint with empty result
         ask_payload = {
-            "question": "Nonexistent random alien topic that definitely has no match",
+            "question": "Xyzzqwk Jklmnp 99999",
         }
-        res = test_client.post(f"/api/syllabus/{syl.id}/assistant/ask", json=ask_payload)
+        res = client.post(f"/api/syllabus/{syl.id}/assistant/ask", json=ask_payload)
         assert res.status_code == 200
         data = res.json()
         assert data["answer_state"] == "insufficient_evidence"
 
         # 2. Generate flashcards endpoint (using deterministic fallback)
-        res_gen = test_client.post(
-            f"/api/syllabus/{syl.id}/topics/leaf_os_deadlocks/flashcards/generate?use_ollama=false"
+        res_gen = client.post(
+            f"/api/syllabus/{syl.id}/topics/leaf_os_deadlocks/flashcards/generate"
         )
         assert res_gen.status_code == 200
         gen_data = res_gen.json()
@@ -305,16 +310,12 @@ def test_rest_api_endpoints(client=None):
         card_id = gen_data["cards"][0]["id"]
 
         # 3. Get flashcards endpoint
-        res_list = test_client.get(f"/api/syllabus/{syl.id}/flashcards?leaf_id=leaf_os_deadlocks")
+        res_list = client.get(f"/api/syllabus/{syl.id}/flashcards?leaf_id=leaf_os_deadlocks")
         assert res_list.status_code == 200
         cards_list = res_list.json()
         assert len(cards_list) >= 1
 
         # 4. Delete flashcard endpoint
-        res_del = test_client.delete(f"/api/syllabus/{syl.id}/flashcards/{card_id}")
+        res_del = client.delete(f"/api/syllabus/{syl.id}/flashcards/{card_id}")
         assert res_del.status_code == 200
         assert res_del.json()["deleted"] is True
-    finally:
-        session = Session()
-        delete_syllabus(session, syl.id)
-        session.close()

@@ -27,9 +27,9 @@ describe('StudyAssistantDrawer Component', () => {
       />
     );
 
-    expect(screen.getByText('Syllabus AI Assistant')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Ask anything about your syllabus/i)).toBeInTheDocument();
-    expect(screen.getByText('What are the prerequisite topics?')).toBeInTheDocument();
+    expect(screen.getByText('AI Study Assistant')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Ask about any course concept/i)).toBeInTheDocument();
+    expect(screen.getByText('What are the core concepts and topics covered?')).toBeInTheDocument();
   });
 
   it('does not render when isOpen is false', () => {
@@ -72,10 +72,10 @@ describe('StudyAssistantDrawer Component', () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(/Ask anything about your syllabus/i);
+    const input = screen.getByPlaceholderText(/Ask about any course concept/i);
     fireEvent.change(input, { target: { value: 'How does deadlock avoidance work?' } });
 
-    const submitBtn = screen.getByRole('button', { name: /Ask AI/i });
+    const submitBtn = screen.getByRole('button', { name: /Send question/i });
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
@@ -85,7 +85,7 @@ describe('StudyAssistantDrawer Component', () => {
         subject_id: undefined,
       });
       expect(screen.getByText(/Bankers Algorithm avoids deadlock by ensuring safe states/i)).toBeInTheDocument();
-      expect(screen.getByText('Fully Grounded')).toBeInTheDocument();
+      expect(screen.getByText(/Supported by Syllabus/i)).toBeInTheDocument();
       expect(screen.getByText('CS301 > Module 2 > Deadlocks')).toBeInTheDocument();
     });
 
@@ -112,14 +112,14 @@ describe('StudyAssistantDrawer Component', () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(/Ask anything about your syllabus/i);
+    const input = screen.getByPlaceholderText(/Ask about any course concept/i);
     fireEvent.change(input, { target: { value: 'What is alien warp drive physics?' } });
 
-    const submitBtn = screen.getByRole('button', { name: /Ask AI/i });
+    const submitBtn = screen.getByRole('button', { name: /Send question/i });
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('Insufficient Evidence')).toBeInTheDocument();
+      expect(screen.getByText(/Insufficient Evidence/i)).toBeInTheDocument();
       expect(screen.getByText(/could not find any official syllabus content/i)).toBeInTheDocument();
     });
   });
@@ -136,7 +136,7 @@ describe('StudyAssistantDrawer Component', () => {
     );
 
     expect(screen.getByText('Paging Algorithms')).toBeInTheDocument();
-    const removeScopeBtn = screen.getByTitle('Clear topic focus');
+    const removeScopeBtn = screen.getByRole('button', { name: /Clear Scope/i });
     fireEvent.click(removeScopeBtn);
 
     expect(screen.queryByText('Paging Algorithms')).not.toBeInTheDocument();

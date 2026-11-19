@@ -40,7 +40,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   initialFile,
   initialUrl,
 }) => {
-  const [activeTab, setActiveTab] = useState<'upload' | 'url'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'url'>(initialUrl ? 'url' : 'upload');
 
   // File Upload State
   const [isDragOver, setIsDragOver] = useState(false);
@@ -50,7 +50,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Web URL Scraper State
-  const [targetUrl, setTargetUrl] = useState('');
+  const [targetUrl, setTargetUrl] = useState(initialUrl || '');
   const [customTitle, setCustomTitle] = useState('');
   const [followEmbeddedPdf, setFollowEmbeddedPdf] = useState(true);
   const [selectedDocUrl, setSelectedDocUrl] = useState<string | null>(null);

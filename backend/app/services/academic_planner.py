@@ -406,7 +406,7 @@ def compare_syllabi(
                     subj_leaves = [t.id for m in subj.modules for t in m.topics]
                     total_modules += len(subj.modules)
                     total_topics += len(subj_leaves)
-                    completed_topics += sum(1 for lid in subj_leaves if lid in completed_leaf_ids)
+                    completed_topics += sum(1 for lid in subj_leaves if lid in completed_ids)
 
                     if subj.is_lab and is_enrolled:
                         lab_subjects += 1

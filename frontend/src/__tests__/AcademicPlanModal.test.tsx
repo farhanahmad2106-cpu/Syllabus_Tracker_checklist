@@ -54,14 +54,14 @@ describe('AcademicPlanModal Component', () => {
       />
     );
 
-    expect(screen.getByText('Academic Credit & Target Grade')).toBeInTheDocument();
-    expect(screen.getByText('Design and Analysis of Algorithms')).toBeInTheDocument();
-    expect(screen.getByText('Declared Credits: 4')).toBeInTheDocument();
+    expect(screen.getByText('Academic Credit & GPA Plan')).toBeInTheDocument();
+    expect(screen.getByText(/Design and Analysis of Algorithms/i)).toBeInTheDocument();
+    expect(screen.getByText('4 Credits')).toBeInTheDocument();
 
-    const overrideInput = screen.getByTestId('credit-override-input') as HTMLInputElement;
+    const overrideInput = screen.getByLabelText(/Credit Override/i) as HTMLInputElement;
     expect(overrideInput.value).toBe('4.5');
 
-    const gradeInput = screen.getByTestId('target-grade-input') as HTMLInputElement;
+    const gradeInput = screen.getByLabelText(/Target Grade Points/i) as HTMLInputElement;
     expect(gradeInput.value).toBe('9');
   });
 
@@ -79,13 +79,13 @@ describe('AcademicPlanModal Component', () => {
       />
     );
 
-    const overrideInput = screen.getByTestId('credit-override-input');
+    const overrideInput = screen.getByLabelText(/Credit Override/i);
     fireEvent.change(overrideInput, { target: { value: '5.0' } });
 
-    const gradeInput = screen.getByTestId('target-grade-input');
+    const gradeInput = screen.getByLabelText(/Target Grade Points/i);
     fireEvent.change(gradeInput, { target: { value: '9.5' } });
 
-    const saveBtn = screen.getByTestId('save-plan-btn');
+    const saveBtn = screen.getByRole('button', { name: /Save Academic Plan/i });
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -97,7 +97,7 @@ describe('AcademicPlanModal Component', () => {
     });
   });
 
-  it('validates grade points according to grade scale', () => {
+  it('validates grade points according to grade scale', async () => {
     render(
       <AcademicPlanModal
         isOpen={true}
@@ -110,17 +110,21 @@ describe('AcademicPlanModal Component', () => {
     );
 
     // Switch to 4.0 scale
-    const scaleSelect = screen.getByTestId('grade-scale-select');
-    fireEvent.change(scaleSelect, { target: { value: '4.0' } });
+    const scaleBtn = screen.getByRole('radio', { name: /4.0 Point Scale/i });
+    fireEvent.click(scaleBtn);
 
     // Enter out-of-range grade
-    const gradeInput = screen.getByTestId('target-grade-input');
+    const gradeInput = screen.getByLabelText(/Target Grade Points/i);
     fireEvent.change(gradeInput, { target: { value: '5.5' } });
 
-    const saveBtn = screen.getByTestId('save-plan-btn');
-    fireEvent.click(saveBtn);
+    const form = screen.getByRole('dialog').querySelector('form')!;
+    fireEvent.submit(form);
 
-    expect(screen.getByText('Target grade points must be between 0.0 and 4.0.')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Target grade must be a number between 0.0 and 4.0 for the 4.0 scale/i)
+      ).toBeInTheDocument();
+    });
   });
 
   it('calls onClose when Cancel button is clicked', () => {
@@ -137,7 +141,7 @@ describe('AcademicPlanModal Component', () => {
       />
     );
 
-    const cancelBtn = screen.getByTestId('cancel-plan-btn');
+    const cancelBtn = screen.getByRole('button', { name: /Cancel/i });
     fireEvent.click(cancelBtn);
     expect(handleClose).toHaveBeenCalledTimes(1);
   });

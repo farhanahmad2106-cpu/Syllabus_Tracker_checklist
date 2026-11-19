@@ -112,6 +112,7 @@ describe('CompareSyllabiModal Component', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.compareSyllabi).mockResolvedValue(mockComparisonResponse);
   });
 
   it('renders modal with syllabus checkboxes and selection controls', () => {
@@ -160,9 +161,9 @@ describe('CompareSyllabiModal Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Curriculum Metrics Matrix')).toBeInTheDocument();
+      expect(screen.getByText('Academic Years')).toBeInTheDocument();
       expect(screen.getByText('Shared & Overlapping Courses')).toBeInTheDocument();
-      expect(screen.getByText('Data Structures and Algorithms')).toBeInTheDocument();
+      expect(screen.getAllByText('Data Structures and Algorithms')[0]).toBeInTheDocument();
     });
   });
 
@@ -178,7 +179,7 @@ describe('CompareSyllabiModal Component', () => {
       />
     );
 
-    const closeBtn = screen.getByTestId('close-compare-modal-btn');
+    const closeBtn = screen.getByRole('button', { name: /Close comparison/i });
     fireEvent.click(closeBtn);
     expect(handleClose).toHaveBeenCalledTimes(1);
   });

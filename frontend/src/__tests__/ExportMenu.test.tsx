@@ -22,6 +22,7 @@ vi.mock('../lib/nativeBridge', () => ({
 describe('ExportMenu Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(nativeBridge.isNativePlatform).mockReturnValue(false);
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,

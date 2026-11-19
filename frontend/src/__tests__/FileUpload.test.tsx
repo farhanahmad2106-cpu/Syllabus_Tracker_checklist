@@ -198,7 +198,7 @@ describe('FileUpload Component', () => {
       />
     );
 
-    const urlInput = screen.getByPlaceholderText(/https:\/\/university\.edu\/syllabus/i) as HTMLInputElement;
+    const urlInput = screen.getByLabelText(/University or Course Webpage URL/i) as HTMLInputElement;
     expect(urlInput.value).toBe('https://university.edu/courses/cs101/syllabus');
   });
 });

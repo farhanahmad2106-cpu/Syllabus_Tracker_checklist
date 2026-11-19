@@ -164,14 +164,16 @@ export function sanitizeExportFilename(rawTitle: string, extension: string): str
 
   // Remove path separators and directory traversal sequences
   let cleaned = rawTitle
+    .replace(/(?:\.\.[/\\]+)+/g, '_')
     .replace(/[/\\]+/g, '_')
-    .replace(/\.\.+/g, '_');
+    .replace(/\.\.+/g, '');
 
   // Strip control characters (ASCII 0-31 and 127)
   cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '');
 
-  // Strip Windows-unsafe punctuation: < > : " | ? *
-  cleaned = cleaned.replace(/[<>:"|?*]/g, '_');
+  // Strip Windows drive colon and replace unsafe punctuation
+  cleaned = cleaned.replace(/:/g, '');
+  cleaned = cleaned.replace(/[<>"|?*]/g, '_');
 
   // Collapse consecutive whitespaces and trim
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
@@ -194,7 +196,7 @@ export function sanitizeExportFilename(rawTitle: string, extension: string): str
     cleaned = cleaned.substring(0, 100).trim();
   }
 
-  if (!cleaned) {
+  if (!cleaned || cleaned === '_') {
     cleaned = 'syllabus-export';
   }
 

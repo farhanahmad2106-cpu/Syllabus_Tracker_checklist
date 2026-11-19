@@ -333,7 +333,7 @@ describe('Native Bridge - Memory-Conscious Content Conversion', () => {
     const blob = new Blob([largeArray], { type: 'application/octet-stream' });
     const b64 = await contentToBase64(blob);
     expect(b64).toBeDefined();
-    expect(b64.startsWith('QQQ')).toBe(true);
+    expect(b64.startsWith('QUFB')).toBe(true);
   });
 });
 

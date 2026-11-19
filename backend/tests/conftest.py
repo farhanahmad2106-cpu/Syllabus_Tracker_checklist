@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.app.database import Base, get_db
+from backend.app.database import Base, get_db, init_db
 from backend.app.main import app
 from backend.app.schemas import (
     AcademicYear,
@@ -36,6 +36,7 @@ def test_engine():
         cursor.close()
 
     Base.metadata.create_all(bind=engine)
+    init_db(engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
 

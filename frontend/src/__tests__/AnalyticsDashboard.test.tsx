@@ -3,11 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import * as api from '../lib/api';
-import type { DueRevisionsResponse, SyllabusAnalytics } from '../types/syllabus';
+import type { AcademicPlanResponse, DueRevisionsResponse, SyllabusAnalytics } from '../types/syllabus';
 
 vi.mock('../lib/api', () => ({
   fetchSyllabusAnalytics: vi.fn(),
   fetchDueRevisions: vi.fn(),
+  fetchAcademicPlan: vi.fn(),
   submitRevisionReview: vi.fn(),
 }));
 
@@ -139,10 +140,31 @@ describe('AnalyticsDashboard Component', () => {
     ],
   };
 
+  const mockAcademicPlan: AcademicPlanResponse = {
+    syllabus_id: 'syl_test_1',
+    program_credit_summary: {
+      total_enrolled_subjects: 10,
+      known_credit_subject_count: 10,
+      total_declared_credits: 160,
+      completed_credits: 40,
+      remaining_credits: 120,
+      proportional_earned_estimate: 40,
+      unassigned_credit_count: 0,
+      eligible_credits_10: 160,
+      eligible_credits_4: 0,
+    },
+    semester_summaries: [],
+    grade_scale_projections: [],
+    subject_plans: [],
+    unassigned_credit_subjects: [],
+    calculation_metadata: {},
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.fetchSyllabusAnalytics).mockResolvedValue(mockAnalytics);
     vi.mocked(api.fetchDueRevisions).mockResolvedValue(mockDueRevisions);
+    vi.mocked(api.fetchAcademicPlan).mockResolvedValue(mockAcademicPlan);
   });
 
   it('renders loading state initially and then renders KPI cards', async () => {
