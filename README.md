@@ -220,6 +220,8 @@ VITE_API_BASE_URL=https://api.yourdomain.com/api
 - **Theme-Aware Status Bar Sync**: Automatically synchronizes the native system status bar with the active application theme (`#09090B` deep zinc background with light text in dark mode; `#FAFAFA` soft neutral background with dark text in light mode; Android background guarded).
 - **Android Hardware Back-Button Handling**: Intercepts native back-button presses through an overlay priority hierarchy:
   $$\text{Command Palette} \longrightarrow \text{Confirm Delete} \longrightarrow \text{Topic Notes Drawer} \longrightarrow \text{Resources Modal} \longrightarrow \text{Upload Modal} \longrightarrow \text{Elective Modal} \longrightarrow \text{Mobile Sidebar} \longrightarrow \text{Default Back / Exit}$$
+- **Native Share-Sheet & Filesystem Export**: Exports Markdown, Schema 2.1 JSON, and printable HTML through native OS share sheets on Android/iOS via `@capacitor/filesystem` and `@capacitor/share`, with automatic browser anchor download fallback on Web/PWA.
+- **Cross-Platform Ingestion & Share Target**: Receives documents (.pdf, .docx, .doc, .txt) shared from other apps via Android `ACTION_SEND` and `ACTION_VIEW` intent filters (`IncomingSharePlugin`), iOS document opening (`CFBundleDocumentTypes`), and PWA Web Share Target (`POST /share-target`), routing them directly into the verified upload interface.
 
 ---
 

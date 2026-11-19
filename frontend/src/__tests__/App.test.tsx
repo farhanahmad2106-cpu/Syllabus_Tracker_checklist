@@ -260,4 +260,20 @@ describe('App Component Layout, Sidebar Deduplication, and Drawer Interactions',
     expect(mobileDeleteBtn).toBeDefined();
     expect(mobileDeleteBtn).toBeInTheDocument();
   });
+
+  it('opens upload modal when incoming shared document event is received', async () => {
+    render(<App />);
+
+    // Dispatch incoming document event to window
+    const sharedFile = new File(['%PDF-1.5 test'], 'incoming_shared.pdf', { type: 'application/pdf' });
+    window.dispatchEvent(
+      new CustomEvent('syllabus:incomingDocument', {
+        detail: { file: sharedFile },
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Import Syllabus Document')).toBeInTheDocument();
+    });
+  });
 });

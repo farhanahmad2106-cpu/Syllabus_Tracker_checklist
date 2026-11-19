@@ -355,7 +355,37 @@
   - Authored frontend component tests in `frontend/src/__tests__/StudyAssistantDrawer.test.tsx` and `frontend/src/__tests__/FlashcardDeckModal.test.tsx`.
   - Verified static Python syntax compilation across all backend files.
 
-### Current Repository Status
+### Phase 13 — Cycle C: Native Share-Sheet, File System Export, Document Picker & Cross-Platform File Ingestion [COMPLETED]
+- [x] Cross-Platform Native Bridge (`frontend/src/lib/nativeBridge.ts`):
+  - Added `@capacitor/filesystem@^7.1.9` and `@capacitor/share@^7.0.4` to dependencies.
+  - Implemented `sanitizeExportFilename`: cleans directory traversal, control characters, Windows-unsafe characters, Windows reserved names (`CON`, `PRN`, `AUX`, `NUL`, etc.), enforces 100-character title limit, prevents duplicate extensions, and preserves readable Unicode.
+  - Memory-conscious `contentToBase64`: chunked 8KB buffer reading preventing call-stack overflows on large documents.
+  - `exportAndShareFile`: Writes to native application cache `Directory.Cache` and presents native Share sheet with file URI on native platforms; automatically falls back to clean Object URL anchor download in web browsers.
+  - `shareSummary`: Delegates to native `Share.share` on Android/iOS, `navigator.share` on modern web browsers, or copies to clipboard with user feedback.
+  - `cleanupStaleExportCache`: Safe background cache cleanup pruning application-owned `syllabus_export_*` files older than 1 hour.
+- [x] Android Native Integration (`AndroidManifest.xml` & `MainActivity.java`):
+  - Registered `ACTION_SEND` and `ACTION_VIEW` intent filters supporting PDF, DOCX, DOC, and TXT MIME types with content and file schemes.
+  - Implemented custom native Capacitor plugin `IncomingSharePlugin.java`:
+    - Reads incoming `content://` and `file://` URIs securely via Android `ContentResolver` and query `OpenableColumns.DISPLAY_NAME`.
+    - Handles both cold-start intents via `getPendingDocument()` and warm-start new intents via `onNewIntent()` and `notifyListeners("incomingDocumentReceived", doc)`.
+    - Prevents intent loss or duplicate delivery.
+- [x] iOS Native Document Integration (`Info.plist` & `AppDelegate.swift`):
+  - Declared `CFBundleDocumentTypes` for PDF (`com.adobe.pdf`), DOCX (`org.openxmlformats.wordprocessingml.document`), DOC (`com.microsoft.word.doc`), and TXT (`public.plain-text`).
+  - Enabled `LSSupportsOpeningDocumentsInPlace` and `UIFileSharingEnabled`.
+  - Added security-scoped resource handling (`startAccessingSecurityScopedResource` and defer release) in `AppDelegate.swift`.
+- [x] PWA Web Share Target Integration (`manifest.webmanifest` & `sw.js`):
+  - Configured `share_target` in `manifest.webmanifest` accepting multipart `POST /share-target` with `documents` files and `url`/`text` parameters.
+  - Updated Service Worker `sw.js` to intercept `/share-target` POST, buffer received documents/URLs in temporary IndexedDB (`syllabus_pwa_share_db`), and redirect client with `303 See Other` to `/?pwa_shared=1`.
+  - Added `consumePwaShareTarget` helper in `nativeBridge.ts` to consume and purge temporary items upon app launch.
+- [x] Unified React UI Integration:
+  - `ExportMenu.tsx`: Contextual labels ("Share Markdown (.md)", "Share JSON Backup", "Share HTML Report" on native vs "Export Markdown", "Download Backup", "Print / Save PDF" on desktop web); added dedicated "Share Summary" action with non-blocking feedback.
+  - `FileUpload.tsx`: Added `initialFile` and `initialUrl` props; automatically triggers client validation and stages incoming document without bypassing server verification.
+  - `App.tsx`: Registered `registerIncomingShareListener` on mount, automatically presenting upload modal when files or web links are received from external applications.
+- [x] Authoring Automated Tests:
+  - Authored comprehensive test suites in `frontend/src/__tests__/nativeBridge.test.ts` covering filename sanitization, Base64 chunking, browser/native export, summary sharing, and incoming document listeners.
+  - Updated `ExportMenu.test.tsx` with native/web contextual sharing and `shareSummary`.
+  - Extended `FileUpload.test.tsx` with `initialFile` and `initialUrl` validation.
+  - Added incoming share modal opening verification in `App.test.tsx`.
 - Codebase complete, hardened, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.
 - Verified Automated Test Baseline:
   - Backend: 182 passed, 0 failed (`pytest backend/tests/`).

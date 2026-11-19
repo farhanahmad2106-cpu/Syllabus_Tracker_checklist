@@ -24,6 +24,8 @@ interface FileUploadProps {
   isUploading: boolean;
   uploadProgress?: UploadProgress | null;
   onCancel?: () => void;
+  initialFile?: File | null;
+  initialUrl?: string | null;
 }
 
 const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MiB
@@ -35,6 +37,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   isUploading,
   uploadProgress,
   onCancel,
+  initialFile,
+  initialUrl,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'url'>('upload');
 
@@ -54,6 +58,23 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const [previewData, setPreviewData] = useState<ScrapePreview | null>(null);
   const [inspectError, setInspectError] = useState<string | null>(null);
   const inspectAbortControllerRef = useRef<AbortController | null>(null);
+
+  // Phase 13 Cycle C: Handle incoming shared file
+  useEffect(() => {
+    if (initialFile) {
+      setActiveTab('upload');
+      validateAndUpload(initialFile);
+    }
+  }, [initialFile]);
+
+  // Phase 13 Cycle C: Handle incoming shared URL
+  useEffect(() => {
+    if (initialUrl) {
+      setActiveTab('url');
+      setTargetUrl(initialUrl);
+      setInspectError(null);
+    }
+  }, [initialUrl]);
 
   useEffect(() => {
     if (uploadProgress && uploadProgress.percent > maxObservedPercent) {

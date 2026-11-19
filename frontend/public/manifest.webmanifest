@@ -9,6 +9,31 @@
   "background_color": "#09090B",
   "theme_color": "#09090B",
   "categories": ["education", "productivity"],
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "documents",
+          "accept": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/msword",
+            "text/plain",
+            ".pdf",
+            ".docx",
+            ".doc",
+            ".txt"
+          ]
+        }
+      ]
+    }
+  },
   "icons": [
     {
       "src": "/icon-192.png",

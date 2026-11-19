@@ -11,14 +11,22 @@ import {
   Settings2,
   X,
   FileJson,
+  Share2,
+  Copy,
 } from 'lucide-react';
 import type { ExportOptions, BackupRestoreResult } from '../types/syllabus';
 import {
-  downloadExportMarkdown,
-  downloadExportJson,
+  getExportMarkdownUrl,
+  getExportJsonUrl,
+  getExportHtmlUrl,
   openPrintableHtml,
   restoreSyllabusBackupFile,
 } from '../lib/api';
+import {
+  exportAndShareFile,
+  isNativePlatform,
+  shareSummary,
+} from '../lib/nativeBridge';
 
 interface ExportMenuProps {
   syllabusId: string;
@@ -34,6 +42,10 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
   const [optionsModalOpen, setOptionsModalOpen] = useState<boolean>(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+
+  const isNative = isNativePlatform();
 
   // Export options state
   const [options, setOptions] = useState<ExportOptions>({
@@ -65,29 +77,99 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleDownloadMarkdown = async () => {
+  const handleExportMarkdown = async () => {
     setMenuOpen(false);
+    setIsExporting(true);
     try {
-      await downloadExportMarkdown(syllabusId, options);
-    } catch (err) {
+      const url = getExportMarkdownUrl(syllabusId, options);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Export failed: ${res.statusText}`);
+      const text = await res.text();
+      const outcome = await exportAndShareFile({
+        filename: `${syllabusTitle || syllabusId}.md`,
+        mimeType: 'text/markdown',
+        content: text,
+        dialogTitle: 'Share Markdown Checklist',
+      });
+      setExportFeedback(outcome === 'shared' ? 'Shared successfully' : 'Downloaded Markdown');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } catch (err: unknown) {
       console.error('Failed to export markdown:', err);
-      alert('Failed to export Markdown. Check console for details.');
+      setExportFeedback('Export failed');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const handleDownloadJson = async () => {
+  const handleExportJson = async () => {
+    setMenuOpen(false);
+    setIsExporting(true);
+    try {
+      const url = getExportJsonUrl(syllabusId, options);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Export failed: ${res.statusText}`);
+      const text = await res.text();
+      const outcome = await exportAndShareFile({
+        filename: `${syllabusTitle || syllabusId}_backup.json`,
+        mimeType: 'application/json',
+        content: text,
+        dialogTitle: 'Share Syllabus Backup',
+      });
+      setExportFeedback(outcome === 'shared' ? 'Shared successfully' : 'Downloaded Backup');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } catch (err: unknown) {
+      console.error('Failed to export JSON backup:', err);
+      setExportFeedback('Export failed');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportHtml = async () => {
+    setMenuOpen(false);
+    if (!isNative) {
+      openPrintableHtml(syllabusId, options);
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const url = getExportHtmlUrl(syllabusId, options);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Export failed: ${res.statusText}`);
+      const text = await res.text();
+      const outcome = await exportAndShareFile({
+        filename: `${syllabusTitle || syllabusId}_report.html`,
+        mimeType: 'text/html',
+        content: text,
+        dialogTitle: 'Share Printable HTML Report',
+      });
+      setExportFeedback(outcome === 'shared' ? 'Shared successfully' : 'Downloaded Report');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } catch (err: unknown) {
+      console.error('Failed to export HTML report:', err);
+      setExportFeedback('Export failed');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleShareSummary = async () => {
     setMenuOpen(false);
     try {
-      await downloadExportJson(syllabusId, options);
+      const outcome = await shareSummary({
+        title: syllabusTitle || 'Syllabus Tracker',
+        text: `Checklist, progress tracking, and study planner for ${syllabusTitle || 'Syllabus'}.`,
+        url: window.location.href,
+        dialogTitle: 'Share Syllabus Summary',
+      });
+      setExportFeedback(outcome === 'shared' ? 'Shared summary' : 'Copied summary');
+      setTimeout(() => setExportFeedback(null), 3000);
     } catch (err) {
-      console.error('Failed to export JSON backup:', err);
-      alert('Failed to export JSON backup. Check console for details.');
+      console.warn('Share summary error:', err);
     }
-  };
-
-  const handlePrintHtml = () => {
-    setMenuOpen(false);
-    openPrintableHtml(syllabusId, options);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -143,20 +225,25 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         <button
           type="button"
           onClick={() => setMenuOpen(!menuOpen)}
-          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:outline-none"
+          disabled={isExporting}
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:outline-none cursor-pointer"
           aria-haspopup="true"
           aria-expanded={menuOpen}
           aria-label="Export & Backup options"
         >
-          <Download className="w-3.5 h-3.5 text-gray-500" />
-          <span>Export &amp; Backup</span>
+          {isExporting ? (
+            <Clock className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+          ) : (
+            <Download className="w-3.5 h-3.5 text-gray-500" />
+          )}
+          <span>{isExporting ? 'Exporting...' : 'Export & Backup'}</span>
           <ChevronDown className="w-3 h-3 text-gray-400" />
         </button>
 
         <button
           type="button"
           onClick={() => setOptionsModalOpen(true)}
-          className="p-1.5 text-gray-400 hover:text-gray-700 border-l border-gray-200 transition-colors"
+          className="p-1.5 text-gray-400 hover:text-gray-700 border-l border-gray-200 transition-colors cursor-pointer"
           title="Configure export contents"
           aria-label="Configure export options"
         >
@@ -164,46 +251,74 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         </button>
       </div>
 
+      {exportFeedback && (
+        <div className="absolute right-0 top-full mt-1 px-2.5 py-1 text-[11px] font-medium bg-zinc-900 text-white rounded shadow-md z-50 animate-in fade-in">
+          {exportFeedback}
+        </div>
+      )}
+
       {/* Dropdown Menu */}
       {menuOpen && (
         <div
-          className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg bg-white ring-1 ring-black/5 divide-y divide-gray-100 z-50 focus:outline-none animate-in fade-in-50 zoom-in-95 duration-100"
+          className="absolute right-0 mt-2 w-60 rounded-lg shadow-lg bg-white ring-1 ring-black/5 divide-y divide-gray-100 z-50 focus:outline-none animate-in fade-in-50 zoom-in-95 duration-100"
           role="menu"
         >
           <div className="py-1">
             <button
-              onClick={handleDownloadMarkdown}
-              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors"
+              onClick={handleExportMarkdown}
+              disabled={isExporting}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors cursor-pointer"
               role="menuitem"
             >
               <FileCode className="w-4 h-4 text-blue-600" />
               <div>
-                <div className="font-medium text-gray-900">Export Markdown (.md)</div>
+                <div className="font-medium text-gray-900">
+                  {isNative ? 'Share Markdown (.md)' : 'Export Markdown (.md)'}
+                </div>
                 <div className="text-[10px] text-gray-400">Hierarchical checklist with notes</div>
               </div>
             </button>
 
             <button
-              onClick={handleDownloadJson}
-              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors"
+              onClick={handleExportJson}
+              disabled={isExporting}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors cursor-pointer"
               role="menuitem"
             >
               <FileJson className="w-4 h-4 text-emerald-600" />
               <div>
-                <div className="font-medium text-gray-900">Download Backup (.json)</div>
+                <div className="font-medium text-gray-900">
+                  {isNative ? 'Share JSON Backup (.json)' : 'Download Backup (.json)'}
+                </div>
                 <div className="text-[10px] text-gray-400">Schema 2.1 portable snapshot</div>
               </div>
             </button>
 
             <button
-              onClick={handlePrintHtml}
-              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors"
+              onClick={handleExportHtml}
+              disabled={isExporting}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors cursor-pointer"
               role="menuitem"
             >
               <Printer className="w-4 h-4 text-purple-600" />
               <div>
-                <div className="font-medium text-gray-900">Print / Save PDF (HTML)</div>
+                <div className="font-medium text-gray-900">
+                  {isNative ? 'Share HTML Report (.html)' : 'Print / Save PDF (HTML)'}
+                </div>
                 <div className="text-[10px] text-gray-400">Printable offline study summary</div>
+              </div>
+            </button>
+
+            <button
+              onClick={handleShareSummary}
+              disabled={isExporting}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors cursor-pointer border-t border-gray-100"
+              role="menuitem"
+            >
+              <Share2 className="w-4 h-4 text-teal-600" />
+              <div>
+                <div className="font-medium text-gray-900">Share Summary</div>
+                <div className="text-[10px] text-gray-400">Share or copy curriculum progress</div>
               </div>
             </button>
           </div>

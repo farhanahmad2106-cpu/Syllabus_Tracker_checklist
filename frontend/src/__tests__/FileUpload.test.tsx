@@ -154,4 +154,51 @@ describe('FileUpload Component', () => {
     expect(screen.getByText('65%')).toBeInTheDocument();
     expect(screen.queryByText('40%')).not.toBeInTheDocument();
   });
+
+  it('automatically validates and uploads incoming initialFile from share sheet', async () => {
+    const onUpload = vi.fn().mockResolvedValue({});
+    const sharedFile = new File(['CS101 content'], 'cs101_syllabus.pdf', { type: 'application/pdf' });
+
+    render(
+      <FileUpload
+        onUpload={onUpload}
+        isUploading={false}
+        initialFile={sharedFile}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onUpload).toHaveBeenCalledWith(sharedFile);
+    });
+  });
+
+  it('rejects invalid incoming initialFile and displays error message', async () => {
+    const onUpload = vi.fn().mockResolvedValue({});
+    const invalidSharedFile = new File(['echo hello'], 'script.exe', { type: 'application/x-msdownload' });
+
+    render(
+      <FileUpload
+        onUpload={onUpload}
+        isUploading={false}
+        initialFile={invalidSharedFile}
+      />
+    );
+
+    expect(onUpload).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Unsupported format '\.exe'/i);
+  });
+
+  it('populates URL scraper tab when initialUrl is provided', () => {
+    const onUpload = vi.fn().mockResolvedValue({});
+    render(
+      <FileUpload
+        onUpload={onUpload}
+        isUploading={false}
+        initialUrl="https://university.edu/courses/cs101/syllabus"
+      />
+    );
+
+    const urlInput = screen.getByPlaceholderText(/https:\/\/university\.edu\/syllabus/i) as HTMLInputElement;
+    expect(urlInput.value).toBe('https://university.edu/courses/cs101/syllabus');
+  });
 });

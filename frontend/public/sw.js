@@ -45,10 +45,74 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Helper to store PWA Web Share Target data into temporary IndexedDB
+function savePwaSharedItem(data) {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open('syllabus_pwa_share_db', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('shared_items')) {
+          db.createObjectStore('shared_items', { keyPath: 'id', autoIncrement: true });
+        }
+      };
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('shared_items', 'readwrite');
+        tx.objectStore('shared_items').add(data);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+      };
+      req.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
 // Fetch handler: Cache-First for static assets, Network-First with /index.html fallback for navigation
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
+
+  // 0. Phase 13 Cycle C: Handle PWA Web Share Target POST /share-target
+  if (req.method === 'POST' && url.pathname === '/share-target') {
+    event.respondWith(
+      (async () => {
+        try {
+          const formData = await req.formData();
+          const files = formData.getAll('documents');
+          const sharedUrl = formData.get('url') || formData.get('text');
+
+          let sharedFile = null;
+          if (files && files.length > 0 && files[0] instanceof File) {
+            sharedFile = files[0];
+          }
+
+          const rawUrl = typeof sharedUrl === 'string' ? sharedUrl.trim() : '';
+          const validUrl = (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) ? rawUrl : undefined;
+
+          if (sharedFile || validUrl) {
+            await savePwaSharedItem({
+              file: sharedFile || undefined,
+              url: validUrl,
+              createdAt: Date.now(),
+            });
+          }
+        } catch (err) {
+          console.warn('[SW] Error processing share-target payload:', err);
+        }
+        return Response.redirect('/?pwa_shared=1', 303);
+      })()
+    );
+    return;
+  }
 
   // 1. NEVER intercept or cache mutations or SSE progress streams
   if (

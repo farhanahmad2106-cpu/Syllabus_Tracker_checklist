@@ -47,7 +47,11 @@ import {
   updateSubjectAcademicPlan,
 } from './lib/api';
 import { enqueueMutation } from './lib/offlineStore';
-import { registerNativeBackButton, syncNativeStatusBar } from './lib/nativeBridge';
+import {
+  registerIncomingShareListener,
+  registerNativeBackButton,
+  syncNativeStatusBar,
+} from './lib/nativeBridge';
 import type {
   AcademicPlanResponse,
   Subject,
@@ -135,6 +139,25 @@ export const App: React.FC = () => {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [assistantScope, setAssistantScope] = useState<{ leafId?: string | null; leafTitle?: string | null }>({});
   const [activeFlashcardLeaf, setActiveFlashcardLeaf] = useState<{ leafId: string; leafTitle: string } | null>(null);
+  const [incomingSharedFile, setIncomingSharedFile] = useState<File | null>(null);
+  const [incomingSharedUrl, setIncomingSharedUrl] = useState<string | null>(null);
+
+  // Phase 13 Cycle C: Register incoming document and share listener
+  useEffect(() => {
+    const unregister = registerIncomingShareListener(
+      (file: File) => {
+        setIncomingSharedFile(file);
+        setIncomingSharedUrl(null);
+        setShowUploadModal(true);
+      },
+      (url: string) => {
+        setIncomingSharedUrl(url);
+        setIncomingSharedFile(null);
+        setShowUploadModal(true);
+      }
+    );
+    return unregister;
+  }, []);
 
   // Fetch academic plan when active syllabus changes
   useEffect(() => {
@@ -257,6 +280,8 @@ export const App: React.FC = () => {
       // Priority 5: Upload modal
       if (showUploadModal) {
         setShowUploadModal(false);
+        setIncomingSharedFile(null);
+        setIncomingSharedUrl(null);
         return true;
       }
       // Priority 6: Elective onboarding modal
@@ -993,7 +1018,13 @@ export const App: React.FC = () => {
               <h3 className="text-base font-bold text-[var(--text-primary)]">Import Syllabus Document</h3>
               <button
                 type="button"
-                onClick={() => !isUploading && setShowUploadModal(false)}
+                onClick={() => {
+                  if (!isUploading) {
+                    setShowUploadModal(false);
+                    setIncomingSharedFile(null);
+                    setIncomingSharedUrl(null);
+                  }
+                }}
                 disabled={isUploading}
                 className="text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 rounded-lg cursor-pointer"
               >
@@ -1002,13 +1033,17 @@ export const App: React.FC = () => {
             </div>
 
             <FileUpload
+              initialFile={incomingSharedFile}
+              initialUrl={incomingSharedUrl}
               onUpload={async (file) => {
                 await uploadFile(file);
                 setShowUploadModal(false);
+                setIncomingSharedFile(null);
               }}
               onIngestUrl={async (payload) => {
                 await ingestUrl(payload);
                 setShowUploadModal(false);
+                setIncomingSharedUrl(null);
               }}
               isUploading={isUploading}
               uploadProgress={uploadProgress}
@@ -1018,7 +1053,11 @@ export const App: React.FC = () => {
             <div className="flex justify-end pt-2">
               <button
                 type="button"
-                onClick={() => setShowUploadModal(false)}
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setIncomingSharedFile(null);
+                  setIncomingSharedUrl(null);
+                }}
                 disabled={isUploading}
                 className="px-4 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
               >
