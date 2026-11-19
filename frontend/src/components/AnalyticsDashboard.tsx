@@ -7,21 +7,26 @@ import {
   CheckCircle2,
   Clock,
   Flame,
+  GraduationCap,
   Layers,
   RefreshCw,
   Sparkles,
   TrendingUp,
   FileText,
   Bookmark,
+  Info,
 } from 'lucide-react';
 import {
+  fetchAcademicPlan,
   fetchDueRevisions,
   fetchSyllabusAnalytics,
   submitRevisionReview,
 } from '../lib/api';
 import { enqueueMutation } from '../lib/offlineStore';
 import type {
+  AcademicPlanResponse,
   DueRevisionItem,
+  Subject,
   SyllabusAnalytics,
 } from '../types/syllabus';
 
@@ -37,7 +42,10 @@ interface AnalyticsDashboardProps {
   ) => void;
   isOnline?: boolean;
   onReviewCompleted?: () => void;
+  onOpenAcademicPlan?: (subj: Subject) => void;
+  academicPlanProp?: AcademicPlanResponse | null;
 }
+
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   syllabusId,
@@ -47,10 +55,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   onOpenResourceModal,
   isOnline = true,
   onReviewCompleted,
+  onOpenAcademicPlan: _onOpenAcademicPlan,
+  academicPlanProp,
 }) => {
   const [analytics, setAnalytics] = useState<SyllabusAnalytics | null>(null);
   const [dueRevisions, setDueRevisions] = useState<DueRevisionItem[]>([]);
   const [totalDue, setTotalDue] = useState<number>(0);
+  const [academicPlan, setAcademicPlan] = useState<AcademicPlanResponse | null>(academicPlanProp || null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +72,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (academicPlanProp) {
+      setAcademicPlan(academicPlanProp);
+    }
+  }, [academicPlanProp]);
+
 
   // Auto-dismiss notifications after 4 seconds
   useEffect(() => {
@@ -76,14 +94,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       setError(null);
 
       try {
-        const [analyticsRes, revisionsRes] = await Promise.all([
+        const [analyticsRes, revisionsRes, planRes] = await Promise.all([
           fetchSyllabusAnalytics(syllabusId),
           fetchDueRevisions(syllabusId, includeUpcoming, 50),
+          fetchAcademicPlan(syllabusId).catch(() => null),
         ]);
 
         setAnalytics(analyticsRes);
         setDueRevisions(revisionsRes.items);
         setTotalDue(revisionsRes.total_due);
+        if (planRes) setAcademicPlan(planRes);
 
         // Cache snapshot in localStorage for offline resilience
         try {
@@ -93,6 +113,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               analytics: analyticsRes,
               dueRevisions: revisionsRes.items,
               totalDue: revisionsRes.total_due,
+              academicPlan: planRes,
               cachedAt: Date.now(),
             })
           );
@@ -108,6 +129,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             setAnalytics(parsed.analytics);
             setDueRevisions(parsed.dueRevisions || []);
             setTotalDue(parsed.totalDue || 0);
+            if (parsed.academicPlan) setAcademicPlan(parsed.academicPlan);
             setError(
               'Operating in offline preview mode. Displaying cached study analytics.'
             );
@@ -116,6 +138,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         } catch {
           // Ignore cache read errors
         }
+
 
         setError(
           err instanceof Error
@@ -870,7 +893,195 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         )}
       </div>
 
+      {/* Section 4.5: Credit Workload & Target GPA (Phase 13 — Cycle A) */}
+      <div className="p-5 sm:p-6 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-emerald-500" />
+              <span>Credit Workload & Target GPA</span>
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+              Academic credit distribution, completion workload, and student-defined target GPA projections.
+            </p>
+          </div>
+        </div>
+
+        {/* GPA Projection Cards (Scale-Isolated) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* 10.0 Scale */}
+          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/60 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[var(--text-primary)]">10.0 Point Scale</span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                Target Projection
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-[var(--text-primary)]">
+                {academicPlan?.program_credit_summary.target_cgpa_10 !== null && academicPlan?.program_credit_summary.target_cgpa_10 !== undefined
+                  ? academicPlan.program_credit_summary.target_cgpa_10.toFixed(2)
+                  : '—'}
+              </span>
+              <span className="text-xs text-[var(--text-muted)]">Target CGPA</span>
+            </div>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              {academicPlan?.program_credit_summary.eligible_credits_10 ?? 0} eligible credits across{' '}
+              {academicPlan?.grade_scale_projections.find((p) => p.grade_scale === '10.0')?.eligible_subjects_count ?? 0} configured courses.
+            </p>
+          </div>
+
+          {/* 4.0 Scale */}
+          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/60 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[var(--text-primary)]">4.0 Point Scale</span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                Target Projection
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-[var(--text-primary)]">
+                {academicPlan?.program_credit_summary.target_cgpa_4 !== null && academicPlan?.program_credit_summary.target_cgpa_4 !== undefined
+                  ? academicPlan.program_credit_summary.target_cgpa_4.toFixed(2)
+                  : '—'}
+              </span>
+              <span className="text-xs text-[var(--text-muted)]">Target CGPA</span>
+            </div>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              {academicPlan?.program_credit_summary.eligible_credits_4 ?? 0} eligible credits across{' '}
+              {academicPlan?.grade_scale_projections.find((p) => p.grade_scale === '4.0')?.eligible_subjects_count ?? 0} configured courses.
+            </p>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-[var(--text-muted)] italic flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+          <span>
+            Target GPA projections represent student-assigned planning estimates, not official academic grades or institutional awards.
+          </span>
+        </p>
+
+        {/* Overall Program Credit Workload Metrics */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-3 rounded-xl bg-[var(--bg-surface-elevated)]/60 border border-[var(--border-subtle)] space-y-1">
+            <span className="text-[10px] text-[var(--text-muted)] font-medium">Declared Credits</span>
+            <p className="text-lg font-bold font-mono text-[var(--text-primary)]">
+              {academicPlan?.program_credit_summary.total_declared_credits ?? 0}
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[var(--bg-surface-elevated)]/60 border border-[var(--border-subtle)] space-y-1">
+            <span className="text-[10px] text-[var(--text-muted)] font-medium">Completed Credits</span>
+            <p className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
+              {academicPlan?.program_credit_summary.completed_credits ?? 0}
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[var(--bg-surface-elevated)]/60 border border-[var(--border-subtle)] space-y-1">
+            <span className="text-[10px] text-[var(--text-muted)] font-medium">Remaining Credits</span>
+            <p className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400">
+              {academicPlan?.program_credit_summary.remaining_credits ?? 0}
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[var(--bg-surface-elevated)]/60 border border-[var(--border-subtle)] space-y-1">
+            <span className="text-[10px] text-[var(--text-muted)] font-medium">Proportional Earned</span>
+            <p className="text-lg font-bold font-mono text-blue-600 dark:text-blue-400">
+              {academicPlan?.program_credit_summary.proportional_earned_estimate ?? 0}
+            </p>
+          </div>
+        </div>
+
+        {/* Semester Credit Distribution (Horizontal Stacked Bars) */}
+        {academicPlan?.semester_summaries && academicPlan.semester_summaries.length > 0 && (
+          <div className="space-y-3 pt-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              Semester Credit Distribution
+            </h4>
+            <div className="space-y-2.5">
+              {academicPlan.semester_summaries.map((sem) => {
+                const total = sem.total_declared_credits;
+                const completedPct = total > 0 ? (sem.completed_credits / total) * 100 : 0;
+                const remainingPct = total > 0 ? (sem.remaining_credits / total) * 100 : 0;
+
+                return (
+                  <div
+                    key={sem.semester_id}
+                    className="p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/40 space-y-2"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-[var(--text-primary)]">{sem.semester_title}</span>
+                      <div className="flex items-center gap-3 font-mono text-[11px]">
+                        <span className="text-emerald-600 dark:text-emerald-400">
+                          {sem.completed_credits} Completed
+                        </span>
+                        <span className="text-amber-600 dark:text-amber-400">
+                          {sem.remaining_credits} Remaining
+                        </span>
+                        <span className="font-semibold text-[var(--text-primary)]">
+                          {sem.total_declared_credits} Cr Total
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Stack Bar */}
+                    <div className="w-full h-2 rounded-full bg-[var(--bg-surface-hover)] overflow-hidden flex">
+                      <div
+                        style={{ width: `${completedPct}%` }}
+                        className="h-full bg-emerald-500 transition-all duration-300"
+                        title={`Completed: ${sem.completed_credits} Cr (${Math.round(completedPct)}%)`}
+                      />
+                      <div
+                        style={{ width: `${remainingPct}%` }}
+                        className="h-full bg-amber-500/40 transition-all duration-300"
+                        title={`Remaining: ${sem.remaining_credits} Cr (${Math.round(remainingPct)}%)`}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)]">
+                      <span>
+                        {sem.target_sgpa_10 !== null && sem.target_sgpa_10 !== undefined && (
+                          <span className="mr-3">
+                            Target SGPA (10.0): <strong className="font-mono text-[var(--text-primary)]">{sem.target_sgpa_10.toFixed(2)}</strong>
+                          </span>
+                        )}
+                        {sem.target_sgpa_4 !== null && sem.target_sgpa_4 !== undefined && (
+                          <span>
+                            Target SGPA (4.0): <strong className="font-mono text-[var(--text-primary)]">{sem.target_sgpa_4.toFixed(2)}</strong>
+                          </span>
+                        )}
+                      </span>
+                      <span>
+                        Proportional Earned: <strong className="font-mono">{sem.proportional_earned_estimate}</strong>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Missing-Credit Guidance Alert */}
+        {academicPlan?.unassigned_credit_subjects && academicPlan.unassigned_credit_subjects.length > 0 && (
+          <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs space-y-1.5">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>
+                {academicPlan.unassigned_credit_subjects.length} enrolled {academicPlan.unassigned_credit_subjects.length === 1 ? 'course needs' : 'courses need'} credit information:
+              </span>
+            </div>
+            <p className="text-[11px] opacity-90 pl-6">
+              {academicPlan.unassigned_credit_subjects.slice(0, 5).join(', ')}
+              {academicPlan.unassigned_credit_subjects.length > 5 ? ` and ${academicPlan.unassigned_credit_subjects.length - 5} more` : ''}.
+              Configure course credits in the curriculum view to include them in credit workload and GPA projections.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Section 5: Upcoming Exam & Deadline Risk Panel */}
+
       <div className="p-5 sm:p-6 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl shadow-xs space-y-4">
         <div>
           <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">

@@ -306,6 +306,53 @@ class RevisionEvent(SQLModel, table=True):
     )
 
 
+class SubjectAcademicPlan(SQLModel, table=True):
+    """Subject-level academic planning: credit overrides and target grade points."""
+    __tablename__ = "subject_academic_plans"
+    __table_args__ = (
+        UniqueConstraint("syllabus_id", "subject_id", name="uq_subject_academic_plans_syllabus_subject"),
+        Index("ix_subject_academic_plans_syllabus_subject", "syllabus_id", "subject_id"),
+        CheckConstraint("grade_scale IN ('10.0', '4.0')", name="ck_subject_academic_plans_grade_scale"),
+    )
+
+    id: Optional[int] = DBField(
+        default=None,
+        primary_key=True,
+    )
+
+    syllabus_id: str = DBField(
+        index=True,
+        foreign_key="syllabi.id",
+        ondelete="CASCADE",
+    )
+
+    subject_id: str = DBField(
+        index=True,
+    )
+
+    credit_override: Optional[float] = DBField(
+        default=None,
+    )
+
+    target_grade_points: Optional[float] = DBField(
+        default=None,
+    )
+
+    grade_scale: str = DBField(
+        default="10.0",
+        description="10.0 or 4.0",
+    )
+
+    created_at: datetime = DBField(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+    updated_at: datetime = DBField(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+
+
 class SyllabusRecord(Base):
     """Stores the canonical syllabus metadata and serialized hierarchy JSON."""
     __tablename__ = "syllabi"
@@ -373,6 +420,13 @@ class SyllabusRecord(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+
+    academic_plans = relationship(
+        SubjectAcademicPlan,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 
 class LeafCompletionRecord(Base):

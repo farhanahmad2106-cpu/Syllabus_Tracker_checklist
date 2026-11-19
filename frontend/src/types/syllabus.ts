@@ -36,6 +36,8 @@ export interface Subject {
   id: string;
   code?: string | null;
   title: string;
+  credits?: number | null;
+  ltp?: string | null;
   is_lab?: boolean;
   is_elective?: boolean;
   elective_group?: string | null;
@@ -452,6 +454,126 @@ export interface ReviewRatingResponse {
   quality: number;
   reviewed_at: string;
 }
+
+// =========================================================================
+// Phase 13 — Cycle A: Academic Planning & Multi-Syllabus Comparison Types
+// =========================================================================
+
+export type GradeScale = '10.0' | '4.0';
+
+export interface SubjectAcademicPlanUpdate {
+  credit_override?: number | null;
+  target_grade_points?: number | null;
+  grade_scale?: GradeScale;
+}
+
+export interface SubjectAcademicPlanItem {
+  subject_id: string;
+  subject_title: string;
+  subject_code?: string | null;
+  semester_id: string;
+  semester_title: string;
+  is_enrolled: boolean;
+  is_lab: boolean;
+  is_elective: boolean;
+  declared_credits?: number | null;
+  credit_override?: number | null;
+  effective_credits?: number | null;
+  ltp?: string | null;
+  grade_scale: GradeScale;
+  target_grade_points?: number | null;
+  is_gpa_eligible: boolean;
+  is_completed: boolean;
+  total_leaves: number;
+  completed_leaves: number;
+}
+
+export interface SemesterCreditSummary {
+  semester_id: string;
+  semester_title: string;
+  semester_number?: number | null;
+  enrolled_subject_count: number;
+  known_credit_subject_count: number;
+  total_declared_credits: number;
+  completed_credits: number;
+  remaining_credits: number;
+  proportional_earned_estimate: number;
+  unassigned_credit_count: number;
+  target_sgpa_10?: number | null;
+  target_sgpa_4?: number | null;
+  eligible_credits_10: number;
+  eligible_credits_4: number;
+}
+
+export interface ProgramCreditSummary {
+  total_enrolled_subjects: number;
+  known_credit_subject_count: number;
+  total_declared_credits: number;
+  completed_credits: number;
+  remaining_credits: number;
+  proportional_earned_estimate: number;
+  unassigned_credit_count: number;
+  target_cgpa_10?: number | null;
+  target_cgpa_4?: number | null;
+  eligible_credits_10: number;
+  eligible_credits_4: number;
+}
+
+export interface GradeScaleProjection {
+  grade_scale: GradeScale;
+  target_cgpa?: number | null;
+  eligible_credits: number;
+  eligible_subjects_count: number;
+}
+
+export interface AcademicPlanResponse {
+  syllabus_id: string;
+  program_credit_summary: ProgramCreditSummary;
+  semester_summaries: SemesterCreditSummary[];
+  grade_scale_projections: GradeScaleProjection[];
+  subject_plans: SubjectAcademicPlanItem[];
+  unassigned_credit_subjects: string[];
+  calculation_metadata: Record<string, unknown>;
+}
+
+export interface SyllabusComparisonItem {
+  syllabus_id: string;
+  title: string;
+  source_type: string;
+  source_filename: string;
+  year_count: number;
+  semester_count: number;
+  total_subjects: number;
+  enrolled_subjects: number;
+  excluded_electives: number;
+  lab_subjects: number;
+  lab_ratio_percent: number;
+  total_modules: number;
+  total_topics: number;
+  completed_topics: number;
+  completion_percent: number;
+  total_known_declared_credits: number;
+  missing_credit_subject_count: number;
+  target_gpa_subject_count: number;
+}
+
+export interface SharedSubjectMatch {
+  subject_title_a: string;
+  subject_title_b: string;
+  syllabus_id_a: string;
+  syllabus_id_b: string;
+  subject_id_a: string;
+  subject_id_b: string;
+  match_type: 'exact_title' | 'course_code' | 'token_similarity';
+  match_strength: number;
+}
+
+export interface SyllabusComparisonResponse {
+  syllabi: SyllabusComparisonItem[];
+  shared_subjects: SharedSubjectMatch[];
+  compared_at: string;
+}
+
 
 
 

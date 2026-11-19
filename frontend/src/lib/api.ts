@@ -3,6 +3,7 @@
  */
 
 import type {
+  AcademicPlanResponse,
   AddResourcePayload,
   AppConfigResponse,
   BackupRestorePayload,
@@ -18,7 +19,9 @@ import type {
   ScrapePreview,
   SetTargetDatePayload,
   StartUploadResponse,
+  SubjectAcademicPlanUpdate,
   SyllabusAnalytics,
+  SyllabusComparisonResponse,
   SyllabusPacingSummary,
   SyllabusResponse,
   SyllabusSummary,
@@ -795,3 +798,47 @@ export async function ingestSyllabusUrl(
     });
   });
 }
+
+// --- Phase 13 Cycle A: Academic Planning & Multi-Syllabus Comparison API ---
+
+export async function fetchAcademicPlan(
+  syllabusId: string,
+  signal?: AbortSignal
+): Promise<AcademicPlanResponse> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/academic-plan`, {
+    signal,
+  });
+  return handleResponse<AcademicPlanResponse>(res);
+}
+
+export async function updateSubjectAcademicPlan(
+  syllabusId: string,
+  subjectId: string,
+  payload: SubjectAcademicPlanUpdate,
+  signal?: AbortSignal
+): Promise<AcademicPlanResponse> {
+  const res = await fetch(
+    `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/subjects/${encodeURIComponent(subjectId)}/academic-plan`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  );
+  return handleResponse<AcademicPlanResponse>(res);
+}
+
+export async function compareSyllabi(
+  syllabusIds: string[],
+  signal?: AbortSignal
+): Promise<SyllabusComparisonResponse> {
+  const res = await fetch(`${API_BASE}/syllabi/compare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ syllabus_ids: syllabusIds }),
+    signal,
+  });
+  return handleResponse<SyllabusComparisonResponse>(res);
+}
+

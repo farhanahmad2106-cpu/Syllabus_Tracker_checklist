@@ -315,11 +315,33 @@ def canonicalize_extracted_curriculum(
                         )
 
                 if canonical_modules:
+                    # Validate course credits if explicitly declared
+                    raw_credits = getattr(ext_subj, "credits", None)
+                    validated_credits = None
+                    if raw_credits is not None:
+                        try:
+                            c_float = float(raw_credits)
+                            if not (math.isnan(c_float) or math.isinf(c_float) or c_float < 0.0 or c_float > 30.0):
+                                validated_credits = round(c_float, 2)
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Validate course L-T-P breakdown if explicitly declared
+                    raw_ltp = getattr(ext_subj, "ltp", None)
+                    validated_ltp = None
+                    if raw_ltp is not None and isinstance(raw_ltp, str) and raw_ltp.strip():
+                        s_ltp = raw_ltp.strip()
+                        m_ltp = re.match(r"^(\d+)\s*[-–:/]\s*(\d+)\s*[-–:/]\s*(\d+)$", s_ltp)
+                        if m_ltp:
+                            validated_ltp = f"{m_ltp.group(1)}-{m_ltp.group(2)}-{m_ltp.group(3)}"
+
                     canonical_subjects.append(
                         Subject(
                             id=subj_id,
                             code=subj_code,
                             title=subj_title,
+                            credits=validated_credits,
+                            ltp=validated_ltp,
                             is_lab=is_lab,
                             is_elective=is_elective,
                             elective_group=elective_group,
@@ -329,6 +351,7 @@ def canonicalize_extracted_curriculum(
                             order_index=subj_idx,
                         )
                     )
+
 
             if canonical_subjects:
                 canonical_semesters.append(

@@ -13,13 +13,16 @@ import {
   PanelLeftClose,
   Plus,
   RefreshCw,
+  Scale,
   Search,
   Sun,
   Trash2,
   X,
 } from 'lucide-react';
+import { AcademicPlanModal } from './components/AcademicPlanModal';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { CommandPalette } from './components/CommandPalette';
+import { CompareSyllabiModal } from './components/CompareSyllabiModal';
 import { ConfirmDelete } from './components/ConfirmDelete';
 import { ElectiveOnboardingModal } from './components/ElectiveOnboardingModal';
 import { EmptyState } from './components/EmptyState';
@@ -34,8 +37,20 @@ import { TopicResourcesModal } from './components/TopicResourcesModal';
 import { useOfflineSync } from './hooks/useOfflineSync';
 import { useSyllabus } from './hooks/useSyllabus';
 import { useTheme } from './hooks/useTheme';
-import { downloadExportMarkdown } from './lib/api';
+import {
+  downloadExportMarkdown,
+  fetchAcademicPlan,
+  updateSubjectAcademicPlan,
+} from './lib/api';
+import { enqueueMutation } from './lib/offlineStore';
 import { registerNativeBackButton, syncNativeStatusBar } from './lib/nativeBridge';
+import type {
+  AcademicPlanResponse,
+  Subject,
+  SubjectAcademicPlanItem,
+  SubjectAcademicPlanUpdate,
+} from './types/syllabus';
+
 
 export const App: React.FC = () => {
   const {
@@ -109,6 +124,80 @@ export const App: React.FC = () => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [targetNavNodeId, setTargetNavNodeId] = useState<string | null>(null);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'tree' | 'analytics'>('tree');
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
+  const [selectedAcademicSubject, setSelectedAcademicSubject] = useState<Subject | null>(null);
+  const [academicPlanData, setAcademicPlanData] = useState<AcademicPlanResponse | null>(null);
+  const [isAcademicPlanModalOpen, setIsAcademicPlanModalOpen] = useState(false);
+
+  // Fetch academic plan when active syllabus changes
+  useEffect(() => {
+    if (activeSyllabus?.syllabus.id) {
+      fetchAcademicPlan(activeSyllabus.syllabus.id)
+        .then(setAcademicPlanData)
+        .catch(() => setAcademicPlanData(null));
+    } else {
+      setAcademicPlanData(null);
+    }
+  }, [activeSyllabus?.syllabus.id]);
+
+  const academicPlansMap = useMemo(() => {
+    if (!academicPlanData?.subject_plans) return {};
+    const map: Record<string, SubjectAcademicPlanItem> = {};
+    for (const p of academicPlanData.subject_plans) {
+      map[p.subject_id] = p;
+    }
+    return map;
+  }, [academicPlanData]);
+
+  const handleOpenAcademicPlan = (subj: Subject) => {
+    setSelectedAcademicSubject(subj);
+    setIsAcademicPlanModalOpen(true);
+  };
+
+  const handleSaveAcademicPlan = async (
+    subjectId: string,
+    plan: SubjectAcademicPlanUpdate
+  ) => {
+    if (!activeSyllabus) return;
+    const sylId = activeSyllabus.syllabus.id;
+
+    if (isOnline) {
+      const updated = await updateSubjectAcademicPlan(sylId, subjectId, plan);
+      setAcademicPlanData(updated);
+    } else {
+      await enqueueMutation({
+        syllabusId: sylId,
+        type: 'SAVE_ACADEMIC_PLAN',
+        payload: { subjectId, plan },
+      });
+      // Optimistically update local state
+      setAcademicPlanData((prev) => {
+        if (!prev) return prev;
+        const newPlans = prev.subject_plans.map((p) => {
+          if (p.subject_id === subjectId) {
+            const eff =
+              plan.credit_override !== undefined && plan.credit_override !== null
+                ? plan.credit_override
+                : p.declared_credits;
+            return {
+              ...p,
+              credit_override: plan.credit_override,
+              target_grade_points: plan.target_grade_points,
+              grade_scale: plan.grade_scale || p.grade_scale,
+              effective_credits: eff,
+              is_gpa_eligible: Boolean(eff && eff > 0 && plan.target_grade_points !== null),
+            };
+          }
+          return p;
+        });
+        return {
+          ...prev,
+          subject_plans: newPlans,
+        };
+      });
+    }
+  };
+
 
   // Synchronize native status bar appearance with resolved theme
   useEffect(() => {
@@ -121,6 +210,16 @@ export const App: React.FC = () => {
       // Priority 1: Global command palette
       if (isCommandPaletteOpen) {
         setIsCommandPaletteOpen(false);
+        return true;
+      }
+      // Priority 1.5: Compare syllabi modal
+      if (isCompareModalOpen) {
+        setIsCompareModalOpen(false);
+        return true;
+      }
+      // Priority 1.6: Academic plan modal
+      if (isAcademicPlanModalOpen) {
+        setIsAcademicPlanModalOpen(false);
         return true;
       }
       // Priority 2: Confirm delete modal
@@ -159,6 +258,8 @@ export const App: React.FC = () => {
     return unregister;
   }, [
     isCommandPaletteOpen,
+    isCompareModalOpen,
+    isAcademicPlanModalOpen,
     deletingId,
     activeNoteLeaf,
     closeNoteDrawer,
@@ -390,6 +491,20 @@ export const App: React.FC = () => {
             />
           </button>
 
+          {uniqueSyllabi.length >= 2 && (
+            <button
+              type="button"
+              data-testid="compare-syllabi-header-btn"
+              onClick={() => setIsCompareModalOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-all cursor-pointer"
+              title="Compare 2 to 4 syllabi"
+              aria-label="Compare multiple syllabi"
+            >
+              <Scale className="w-3.5 h-3.5" />
+              <span>Compare</span>
+            </button>
+          )}
+
           <button
             type="button"
             data-testid="import-syllabus-btn"
@@ -439,9 +554,23 @@ export const App: React.FC = () => {
         >
           {/* Sidebar Header */}
           <div className="p-4 border-b border-[var(--border-hairline)] shrink-0 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-              Documents ({uniqueSyllabi.length})
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                Documents ({uniqueSyllabi.length})
+              </span>
+              {uniqueSyllabi.length >= 2 && (
+                <button
+                  type="button"
+                  data-testid="compare-syllabi-sidebar-btn"
+                  onClick={() => setIsCompareModalOpen(true)}
+                  className="px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Compare multiple syllabi"
+                >
+                  <Scale className="w-3 h-3" />
+                  <span>Compare</span>
+                </button>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setIsSidebarOpen(false)}
@@ -761,6 +890,8 @@ export const App: React.FC = () => {
                   onOpenResource={openResourceModal}
                   targetNodeId={targetNavNodeId}
                   onTargetNodeNavigated={() => setTargetNavNodeId(null)}
+                  academicPlansMap={academicPlansMap}
+                  onOpenAcademicPlan={handleOpenAcademicPlan}
                 />
               ) : (
                 <AnalyticsDashboard
@@ -773,6 +904,8 @@ export const App: React.FC = () => {
                   onReviewCompleted={() => {
                     refreshList();
                   }}
+                  academicPlanProp={academicPlanData}
+                  onOpenAcademicPlan={handleOpenAcademicPlan}
                 />
               )}
             </div>
@@ -903,6 +1036,33 @@ export const App: React.FC = () => {
         nodeTitle={activeResourceNode?.title || ''}
         onResourceCountChange={handleResourceCountChange}
       />
+
+      {/* Phase 13 Cycle A: Multi-Syllabus Comparison Modal */}
+      <CompareSyllabiModal
+        isOpen={isCompareModalOpen}
+        onClose={() => setIsCompareModalOpen(false)}
+        syllabi={uniqueSyllabi}
+        initialSelectedIds={
+          activeSyllabus
+            ? [activeSyllabus.syllabus.id]
+            : uniqueSyllabi.slice(0, 2).map((s) => s.id)
+        }
+      />
+
+      {/* Phase 13 Cycle A: Academic Plan Configuration Modal */}
+      {selectedAcademicSubject && activeSyllabus && (
+        <AcademicPlanModal
+          isOpen={isAcademicPlanModalOpen}
+          onClose={() => {
+            setIsAcademicPlanModalOpen(false);
+            setSelectedAcademicSubject(null);
+          }}
+          syllabusId={activeSyllabus.syllabus.id}
+          subject={selectedAcademicSubject}
+          existingPlan={academicPlansMap[selectedAcademicSubject.id] || null}
+          onSave={handleSaveAcademicPlan}
+        />
+      )}
     </div>
   );
 };

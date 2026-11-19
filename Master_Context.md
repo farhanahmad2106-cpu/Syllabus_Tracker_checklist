@@ -279,6 +279,38 @@
   - Apple Developer signing configuration: Team identification, bundle ID `com.syllabustracker.app`, App Transport Security rules.
   - Xcode distribution pipeline: `Product → Archive` and `Distribute App` in Organizer for TestFlight and App Store submission.
 
+### Phase 13 — Cycle A: Multi-Syllabus Comparison & GPA / Credit Planner [COMPLETED]
+- [x] Declared Academic Metadata & Schema Extension:
+  - Added optional `credits?: float` and `ltp?: str` (e.g. `"3-1-0"`, `"0-0-4"`) to canonical Tier-3 `Subject` schema in `backend/app/schemas.py`.
+  - Enhanced LLM extraction prompt and rule-based fallback in `backend/app/extractor.py` to extract credits and L-T-P lecture-tutorial-practical breakdowns only when grounded in source text.
+- [x] Academic Plan Database Persistence:
+  - Created `SubjectAcademicPlan` SQLModel table (`subject_academic_plans`) in `backend/app/models.py` with foreign key cascade to `syllabi.id` and unique constraint on `(syllabus_id, subject_id)`.
+  - Implemented transactional helpers in `backend/app/database.py`: `get_subject_academic_plans`, `get_subject_academic_plan`, `upsert_subject_academic_plan`.
+- [x] Academic Planning & Credit Engine (`backend/app/services/academic_planner.py`):
+  - `compute_credit_and_gpa_plan`:
+    - Resolves effective credits ($override ?? declared$).
+    - Calculates completed credits requiring 100% leaf completion ($L_{completed} == L_{total} \land L_{total} > 0$).
+    - Computes proportional earned credits estimate: $\sum C_i \times \frac{L_{completed}}{L_{total}}$.
+    - Grade scale isolation: Computes target SGPA and CGPA separately for 10.0 and 4.0 scales without mixing.
+    - Elective exclusion invariant: Excluded electives (`is_enrolled == False`) contribute 0 to declared, completed, and GPA totals.
+- [x] Multi-Syllabus Comparison Service:
+  - `compare_syllabi`: Compares 2 to 4 unique syllabi across curriculum structure, completion %, lab workload, declared/effective/completed credits, and weekly lecture/tutorial/practical hours.
+  - Shared subject detection across exact course code, exact title, and token overlap.
+- [x] REST API Endpoints in `backend/app/main.py`:
+  - `GET /api/syllabus/{id}/academic-plan`: Computes and returns complete semester and program credit summaries and grade projections.
+  - `PUT /api/syllabus/{id}/subjects/{id}/academic-plan`: Upserts credit overrides and target grade points with grade scale validation.
+  - `POST /api/syllabi/compare`: Compares 2 to 4 syllabi and returns side-by-side metrics and shared courses.
+- [x] Offline-First Frontend Integration:
+  - Added mutation type `'SAVE_ACADEMIC_PLAN'` to `frontend/src/lib/offlineStore.ts` and outbox replay handler in `frontend/src/hooks/useOfflineSync.ts`.
+  - Built accessible `AcademicPlanModal.tsx` for credit overrides and target grade configuration.
+  - Built `CompareSyllabiModal.tsx` supporting 2–4 syllabus selection, comparison matrix table, and shared courses view.
+  - Added credit badges (`X Cr`) and `Credits / GPA` buttons to Tier-3 subjects in `SyllabusTree.tsx`.
+  - Added "Credit Workload & Target GPA" section to `AnalyticsDashboard.tsx`.
+  - Wired header and sidebar Compare triggers and modals into `frontend/src/App.tsx`.
+- [x] Testing & Verification:
+  - Authored comprehensive backend unit tests in `backend/tests/test_academic_planner.py`.
+  - Authored frontend component tests in `frontend/src/__tests__/CompareSyllabiModal.test.tsx` and `frontend/src/__tests__/AcademicPlanModal.test.tsx`.
+  - Verified static Python syntax compilation across all backend files.
 
 ### Current Repository Status
 - Codebase complete, hardened, verified, and synced to remote: `https://github.com/farhanahmad2106-cpu/Syllabus_Tracker_checklist`.

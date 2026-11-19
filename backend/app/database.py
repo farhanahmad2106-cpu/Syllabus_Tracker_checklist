@@ -24,6 +24,7 @@ from backend.app.models import (
     LeafCompletionRecord,
     RevisionEvent,
     RevisionSchedule,
+    SubjectAcademicPlan,
     SyllabusRecord,
     TargetDeadline,
     TopicNote,
@@ -135,6 +136,13 @@ def init_db(db_engine: Optional[Engine] = None) -> None:
             if not re_check.fetchone():
                 RevisionEvent.__table__.create(bind=conn, checkfirst=True)
                 conn.commit()
+
+            # Ensure subject_academic_plans table is created if running against existing database
+            sap_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='subject_academic_plans'"))
+            if not sap_check.fetchone():
+                SubjectAcademicPlan.__table__.create(bind=conn, checkfirst=True)
+                conn.commit()
+
     except Exception:
         pass
 
@@ -538,7 +546,11 @@ def delete_syllabus(session: Session, syllabus_id: str) -> bool:
     session.execute(
         delete(RevisionEvent).where(RevisionEvent.syllabus_id == syllabus_id)
     )
+    session.execute(
+        delete(SubjectAcademicPlan).where(SubjectAcademicPlan.syllabus_id == syllabus_id)
+    )
     session.delete(rec)
+
     session.flush()
     return True
 
@@ -829,5 +841,56 @@ def delete_topic_resource(
     session.delete(res)
     session.flush()
     return True
+
+
+def get_subject_academic_plans(
+    session: Session, syllabus_id: str
+) -> List[SubjectAcademicPlan]:
+    """Retrieve all subject academic planning records for a syllabus."""
+    stmt = select(SubjectAcademicPlan).where(SubjectAcademicPlan.syllabus_id == syllabus_id)
+    return list(session.scalars(stmt).all())
+
+
+def get_subject_academic_plan(
+    session: Session, syllabus_id: str, subject_id: str
+) -> Optional[SubjectAcademicPlan]:
+    """Retrieve an academic plan record for a specific subject."""
+    stmt = select(SubjectAcademicPlan).where(
+        SubjectAcademicPlan.syllabus_id == syllabus_id,
+        SubjectAcademicPlan.subject_id == subject_id,
+    )
+    return session.scalars(stmt).first()
+
+
+def upsert_subject_academic_plan(
+    session: Session,
+    syllabus_id: str,
+    subject_id: str,
+    credit_override: Optional[float] = None,
+    target_grade_points: Optional[float] = None,
+    grade_scale: str = "10.0",
+) -> SubjectAcademicPlan:
+    """Create or update an academic plan record for a subject."""
+    now = datetime.now(timezone.utc)
+    rec = get_subject_academic_plan(session, syllabus_id, subject_id)
+    if rec:
+        rec.credit_override = credit_override
+        rec.target_grade_points = target_grade_points
+        rec.grade_scale = grade_scale
+        rec.updated_at = now
+    else:
+        rec = SubjectAcademicPlan(
+            syllabus_id=syllabus_id,
+            subject_id=subject_id,
+            credit_override=credit_override,
+            target_grade_points=target_grade_points,
+            grade_scale=grade_scale,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(rec)
+    session.flush()
+    return rec
+
 
 

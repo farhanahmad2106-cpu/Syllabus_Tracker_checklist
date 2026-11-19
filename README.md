@@ -38,6 +38,13 @@ A local-first, privacy-respecting, production-grade application that ingests aca
 - **Markdown Notes, Resources & Multi-Format Export (Option B)**: Rich markdown topic notes, external curated reference links, multi-format syllabus export (Markdown, JSON, self-contained printable HTML), and full database backup export with merge/clone restore (`/api/syllabus/restore-backup`).
 - **Web URL Syllabus Ingestion & SSRF Defense (Option C)**: Direct ingestion of web-hosted syllabi via URL scraping (`/api/scrape/preview`, `/api/scrape/ingest`) with strict SSRF defense (private IP/subnet blocking, AWS/GCP cloud metadata blocking), HTML extraction, and automatic downloadable `.pdf`/`.docx` document discovery.
 - **Capacitor Native Mobile Packaging (Step 1)**: Thin native wrapper for Android and iOS using Capacitor 7, preserving 100% of the React application architecture with zero duplicated business logic, theme-synchronized native status bars, Android hardware back-button interception with modal priority stack, and environment-aware backend URL resolution (`VITE_API_BASE_URL`).
+- **Multi-Syllabus Comparison & GPA / Credit Planner (Phase 13 Cycle A)**:
+  - Multi-syllabus side-by-side comparison matrix for 2 to 4 uploaded syllabi across curriculum structure (years, semesters, subjects, modules, topics), completion progress, lab course workload, total credits, and weekly lecture-tutorial-practical hours.
+  - Automatic shared course matching across exact course codes, exact titles, and fuzzy token overlap.
+  - Granular credit overrides and target grade points configuration per subject with strict grade scale isolation (10.0 scale and 4.0 scale projections are never mixed).
+  - Strict completion credit invariant: a course only awards completed credits upon 100% leaf completion, with proportional earned credit estimates tracking in-progress work.
+  - Excluded electives are automatically omitted from active credit and GPA totals without deleting underlying academic history.
+  - Full local-first offline support: outbox queueing (`SAVE_ACADEMIC_PLAN`) in IndexedDB and automatic replay upon network recovery.
 - **Operational Health Endpoints**: `/health` (liveness probe with active provider and model diagnostics) and `/ready` (readiness probe verifying database connectivity without exposing secrets).
 
 ---
@@ -357,6 +364,9 @@ VITE_API_BASE_URL="https://your-api-domain.com/api" npm run cap:ios
 | `GET` | `/api/syllabus/{id}/analytics` | Retrieve study analytics (14-day velocity, study streaks, exam risk forecast) |
 | `GET` | `/api/syllabus/{id}/revisions/due` | Retrieve subtopics currently due for revision under SM-2 schedule |
 | `POST` | `/api/syllabus/{id}/revisions/{leaf_id}/review` | Record SM-2 review rating (`1` Again, `2` Hard, `3` Good, `4` Easy) |
+| `GET` | `/api/syllabus/{id}/academic-plan` | Retrieve academic plan (effective credits, completed credits, proportional earned estimate, target SGPA/CGPA) |
+| `PUT` | `/api/syllabus/{id}/subjects/{subject_id}/academic-plan` | Upsert subject credit override, target grade points, and grade scale |
+| `POST` | `/api/syllabi/compare` | Compare 2 to 4 syllabi side-by-side with curriculum metrics and shared courses |
 
 ---
 

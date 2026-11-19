@@ -112,6 +112,16 @@ class Subject(BaseModel):
     id: str = Field(..., min_length=1)
     code: Optional[str] = Field(default=None)
     title: str = Field(..., min_length=1)
+    credits: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=30.0,
+        description="Declared academic credit weight if explicitly stated in the source syllabus.",
+    )
+    ltp: Optional[str] = Field(
+        default=None,
+        description="Explicit Lecture-Tutorial-Practical breakdown, e.g. 3-1-0.",
+    )
     is_lab: bool = Field(default=False, description="Laboratory, practical, workshop, or sessional course")
     is_elective: bool = Field(default=False, description="Whether this is an elective course")
     elective_group: Optional[str] = Field(default=None, description="Category or group label for elective course")
@@ -130,6 +140,38 @@ class Subject(BaseModel):
         if not s:
             raise ValueError("Field must not be empty or whitespace only")
         return s
+
+    @field_validator("credits")
+    @classmethod
+    def validate_credits_finite(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            import math
+            if math.isnan(v) or math.isinf(v):
+                raise ValueError("credits must be a finite numerical value")
+            if v < 0.0 or v > 30.0:
+                raise ValueError("credits must be between 0.0 and 30.0")
+        return v
+
+    @field_validator("ltp")
+    @classmethod
+    def validate_and_normalize_ltp(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        import re
+        s = v.strip()
+        if not s:
+            return None
+        # Match L-T-P or L:T:P or L/T/P, e.g., 3-1-0, 3-0-0, 0-0-2
+        m = re.match(r"^(\d+)\s*[-–:/]\s*(\d+)\s*[-–:/]\s*(\d+)$", s)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        # Match L-T-P-C format if 4 digits like 3-1-0-4
+        m4 = re.match(r"^(\d+)\s*[-–:/]\s*(\d+)\s*[-–:/]\s*(\d+)\s*[-–:/]\s*(\d+)$", s)
+        if m4:
+            return f"{m4.group(1)}-{m4.group(2)}-{m4.group(3)}-{m4.group(4)}"
+        # Invalid format
+        raise ValueError(f"Invalid L-T-P format: '{v}'. Expected integer breakdown like '3-1-0'")
+
 
 
 class Topic(Module):
@@ -486,10 +528,21 @@ class ExtractedSubject(BaseModel):
     """Subject or Course within a Semester."""
     title: str = Field(..., description="Course or subject title, e.g. 'Computer Science 101'")
     code: Optional[str] = Field(default=None, description="Subject code, e.g. 'CS101'")
+    credits: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=30.0,
+        description="Declared academic credit weight if explicitly stated in the source syllabus.",
+    )
+    ltp: Optional[str] = Field(
+        default=None,
+        description="Explicit Lecture-Tutorial-Practical breakdown, e.g. 3-1-0.",
+    )
     is_lab: bool = Field(default=False, description="Whether this is a laboratory, practical, workshop, or sessional course")
     is_elective: bool = Field(default=False, description="Whether this is an elective course requiring student choice")
     elective_group: Optional[str] = Field(default=None, description="Group or bucket name, e.g. 'Elective I', 'Group A'")
     modules: List[ExtractedModule] = Field(default_factory=list, description="List of modules/units")
+
 
 
 class ExtractedTopic(ExtractedModule):
@@ -901,5 +954,223 @@ class ReviewRatingResponse(BaseModel):
     next_review_date: str
     quality: int
     reviewed_at: str
+
+
+# =========================================================================
+# Phase 13 — Cycle A: Academic Planning & Multi-Syllabus Comparison Schemas
+# =========================================================================
+
+GradeScaleType = Literal["10.0", "4.0"]
+
+
+class SubjectAcademicPlanUpdate(BaseModel):
+    """Payload to configure or clear manual credit overrides and target grade points."""
+    model_config = ConfigDict(strict=False)
+
+    credit_override: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=30.0,
+        description="Manual credit override. If null/cleared, reverts to source declared credits.",
+    )
+    target_grade_points: Optional[float] = Field(
+        default=None,
+        description="Target grade points on the chosen grade scale (e.g. 8.5 on 10.0 scale, 3.7 on 4.0 scale).",
+    )
+    grade_scale: GradeScaleType = Field(
+        default="10.0",
+        description="Active grading scale standard: '10.0' (default) or '4.0'.",
+    )
+
+    @field_validator("credit_override")
+    @classmethod
+    def validate_credit_override(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            import math
+            if math.isnan(v) or math.isinf(v):
+                raise ValueError("credit_override must be a finite numerical value")
+            if v < 0.0 or v > 30.0:
+                raise ValueError("credit_override must be between 0.0 and 30.0")
+        return v
+
+    @field_validator("target_grade_points")
+    @classmethod
+    def validate_grade_points_finite(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            import math
+            if math.isnan(v) or math.isinf(v):
+                raise ValueError("target_grade_points must be a finite numerical value")
+        return v
+
+    @model_validator(mode="after")
+    def validate_grade_scale_range(self) -> "SubjectAcademicPlanUpdate":
+        if self.target_grade_points is not None:
+            if self.grade_scale == "10.0":
+                if self.target_grade_points < 0.0 or self.target_grade_points > 10.0:
+                    raise ValueError(
+                        f"target_grade_points ({self.target_grade_points}) must be between 0.0 and 10.0 for a 10.0 grade scale"
+                    )
+            elif self.grade_scale == "4.0":
+                if self.target_grade_points < 0.0 or self.target_grade_points > 4.0:
+                    raise ValueError(
+                        f"target_grade_points ({self.target_grade_points}) must be between 0.0 and 4.0 for a 4.0 grade scale"
+                    )
+        return self
+
+
+class SubjectAcademicPlanItem(BaseModel):
+    """Subject-level academic planning record combining source credits and manual overrides."""
+    model_config = ConfigDict(strict=False)
+
+    subject_id: str
+    subject_title: str
+    subject_code: Optional[str] = None
+    semester_id: str
+    semester_title: str
+    is_enrolled: bool
+    is_lab: bool
+    is_elective: bool
+    declared_credits: Optional[float] = None
+    credit_override: Optional[float] = None
+    effective_credits: Optional[float] = None
+    ltp: Optional[str] = None
+    grade_scale: GradeScaleType = "10.0"
+    target_grade_points: Optional[float] = None
+    is_gpa_eligible: bool = False
+    is_completed: bool = False
+    total_leaves: int = 0
+    completed_leaves: int = 0
+
+
+class SemesterCreditSummary(BaseModel):
+    """Semester-level academic workload and GPA projection metrics."""
+    model_config = ConfigDict(strict=False)
+
+    semester_id: str
+    semester_title: str
+    semester_number: Optional[int] = None
+    enrolled_subject_count: int
+    known_credit_subject_count: int
+    total_declared_credits: float
+    completed_credits: float
+    remaining_credits: float
+    proportional_earned_estimate: float
+    unassigned_credit_count: int
+    target_sgpa_10: Optional[float] = None
+    target_sgpa_4: Optional[float] = None
+    eligible_credits_10: float = 0.0
+    eligible_credits_4: float = 0.0
+
+
+class ProgramCreditSummary(BaseModel):
+    """Cumulative program-level academic workload and CGPA projection metrics."""
+    model_config = ConfigDict(strict=False)
+
+    total_enrolled_subjects: int
+    known_credit_subject_count: int
+    total_declared_credits: float
+    completed_credits: float
+    remaining_credits: float
+    proportional_earned_estimate: float
+    unassigned_credit_count: int
+    target_cgpa_10: Optional[float] = None
+    target_cgpa_4: Optional[float] = None
+    eligible_credits_10: float = 0.0
+    eligible_credits_4: float = 0.0
+
+
+class GradeScaleProjection(BaseModel):
+    """Scale-specific GPA projection summary (10-point vs 4-point scales are strictly isolated)."""
+    model_config = ConfigDict(strict=False)
+
+    grade_scale: GradeScaleType
+    target_cgpa: Optional[float] = None
+    eligible_credits: float
+    eligible_subjects_count: int
+
+
+class AcademicPlanResponse(BaseModel):
+    """Authoritative academic plan response with credit metrics and GPA projections."""
+    model_config = ConfigDict(strict=False)
+
+    syllabus_id: str
+    program_credit_summary: ProgramCreditSummary
+    semester_summaries: List[SemesterCreditSummary]
+    grade_scale_projections: List[GradeScaleProjection]
+    subject_plans: List[SubjectAcademicPlanItem]
+    unassigned_credit_subjects: List[str]  # List of subject titles missing credits
+    calculation_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SyllabusComparisonRequest(BaseModel):
+    """Request payload to compare between 2 and 4 unique syllabi."""
+    model_config = ConfigDict(strict=False)
+
+    syllabus_ids: List[str] = Field(
+        ...,
+        min_length=2,
+        max_length=4,
+        description="List of 2 to 4 unique syllabus identifiers to compare.",
+    )
+
+    @field_validator("syllabus_ids")
+    @classmethod
+    def validate_syllabus_ids(cls, v: List[str]) -> List[str]:
+        cleaned = [s.strip() for s in v if s and s.strip()]
+        if len(cleaned) < 2:
+            raise ValueError("Comparison requires at least 2 unique syllabus IDs")
+        if len(cleaned) > 4:
+            raise ValueError("Comparison supports at most 4 unique syllabus IDs")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("Duplicate syllabus IDs are not permitted in comparison")
+        return cleaned
+
+
+class SyllabusComparisonItem(BaseModel):
+    """Detailed structural, progress, workload, and credit metrics for a single syllabus in comparison."""
+    model_config = ConfigDict(strict=False)
+
+    syllabus_id: str
+    title: str
+    source_type: str = "upload"  # upload or url
+    source_filename: str = ""
+    year_count: int = 0
+    semester_count: int = 0
+    total_subjects: int = 0
+    enrolled_subjects: int = 0
+    excluded_electives: int = 0
+    lab_subjects: int = 0
+    lab_ratio_percent: float = 0.0
+    total_modules: int = 0
+    total_topics: int = 0  # Tier 5 leaves
+    completed_topics: int = 0
+    completion_percent: float = 0.0
+    total_known_declared_credits: float = 0.0
+    missing_credit_subject_count: int = 0
+    target_gpa_subject_count: int = 0
+
+
+class SharedSubjectMatch(BaseModel):
+    """Identified common or overlapping course between two compared syllabi."""
+    model_config = ConfigDict(strict=False)
+
+    subject_title_a: str
+    subject_title_b: str
+    syllabus_id_a: str
+    syllabus_id_b: str
+    subject_id_a: str
+    subject_id_b: str
+    match_type: Literal["exact_title", "course_code", "token_similarity"]
+    match_strength: float = Field(ge=0.0, le=1.0)
+
+
+class SyllabusComparisonResponse(BaseModel):
+    """Full multi-syllabus comparison matrix and shared subject analysis."""
+    model_config = ConfigDict(strict=False)
+
+    syllabi: List[SyllabusComparisonItem]
+    shared_subjects: List[SharedSubjectMatch] = Field(default_factory=list)
+    compared_at: str
+
 
 

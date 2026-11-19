@@ -35,11 +35,14 @@ from backend.app.database import (
     get_target_deadlines,
     get_topic_note,
     get_topic_resources,
+    get_subject_academic_plan,
+    get_subject_academic_plans,
     init_db,
     list_syllabi_summaries,
     update_bulk_completion,
     update_leaf_completion,
     update_syllabus_title,
+    upsert_subject_academic_plan,
     upsert_target_deadline,
     upsert_topic_note,
 )
@@ -69,6 +72,7 @@ from backend.app.progress import (
     node_exists_in_syllabus,
 )
 from backend.app.schemas import (
+    AcademicPlanResponse,
     AddResourceRequest,
     AppConfigResponse,
     BackupEnvelope,
@@ -94,13 +98,24 @@ from backend.app.schemas import (
     ScrapePreviewResponse,
     SetTargetDateRequest,
     StartUploadResponse,
+    Subject,
+    SubjectAcademicPlanItem,
+    SubjectAcademicPlanUpdate,
     SyllabusAnalyticsResponse,
+    SyllabusComparisonItem,
+    SyllabusComparisonRequest,
+    SyllabusComparisonResponse,
     SyllabusPacingSummaryResponse,
     SyllabusRenameRequest,
     SyllabusResponse,
     SyllabusSummary,
 )
 from backend.app.parser import validate_file_metadata
+from backend.app.services.academic_planner import (
+    compare_syllabi,
+    compute_credit_and_gpa_plan,
+)
+
 from backend.app.services.analytics import (
     compute_syllabus_analytics,
     get_due_revisions,
@@ -1569,5 +1584,105 @@ def submit_revision_review(
     except Exception:
         session.rollback()
         raise
+
+
+# =========================================================================
+# Phase 13 — Cycle A: Academic Planning & Multi-Syllabus Comparison Endpoints
+# =========================================================================
+
+@app.get("/api/syllabus/{syllabus_id}/academic-plan", response_model=AcademicPlanResponse)
+def get_academic_plan_endpoint(
+    syllabus_id: str,
+    session: Session = Depends(get_db),
+):
+    """Retrieve full credit workload analytics, scale-specific GPA projections, and subject plans."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    completed_ids = set(get_completed_leaf_ids(session, syllabus_id))
+
+    return compute_credit_and_gpa_plan(
+        session=session,
+        syllabus=syllabus,
+        completed_leaf_ids=completed_ids,
+    )
+
+
+@app.put(
+    "/api/syllabus/{syllabus_id}/subjects/{subject_id}/academic-plan",
+    response_model=AcademicPlanResponse,
+)
+def update_subject_academic_plan_endpoint(
+    syllabus_id: str,
+    subject_id: str,
+    payload: SubjectAcademicPlanUpdate,
+    session: Session = Depends(get_db),
+):
+    """Configure or clear manual credit overrides and target grade points for a subject."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+
+    # Verify subject exists in syllabus and determine enrollment status
+    target_subject: Optional[Subject] = None
+    for yr in syllabus.years:
+        for sem in yr.semesters:
+            for s in (sem.subjects or []):
+                if s.id == subject_id:
+                    target_subject = s
+                    break
+            if target_subject:
+                break
+        if target_subject:
+            break
+
+    if not target_subject:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Subject '{subject_id}' not found in syllabus '{syllabus_id}'",
+        )
+
+    if not is_subject_enrolled(target_subject):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Subject '{target_subject.title}' is an excluded elective and cannot be configured in the active academic plan.",
+        )
+
+    try:
+        upsert_subject_academic_plan(
+            session=session,
+            syllabus_id=syllabus_id,
+            subject_id=subject_id,
+            credit_override=payload.credit_override,
+            target_grade_points=payload.target_grade_points,
+            grade_scale=payload.grade_scale,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    completed_ids = set(get_completed_leaf_ids(session, syllabus_id))
+    return compute_credit_and_gpa_plan(
+        session=session,
+        syllabus=syllabus,
+        completed_leaf_ids=completed_ids,
+    )
+
+
+@app.post("/api/syllabi/compare", response_model=SyllabusComparisonResponse)
+def compare_syllabi_endpoint(
+    payload: SyllabusComparisonRequest,
+    session: Session = Depends(get_db),
+):
+    """Compare between 2 and 4 syllabi across curriculum structure, completion, lab ratio, and credits."""
+    return compare_syllabi(session=session, syllabus_ids=payload.syllabus_ids)
+
 
 

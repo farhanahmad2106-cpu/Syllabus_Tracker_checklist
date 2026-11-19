@@ -4,6 +4,7 @@
  */
 
 import type {
+  AcademicPlanResponse,
   PacingMetrics,
   SyllabusResponse,
   TopicNote,
@@ -25,7 +26,8 @@ export type MutationType =
   | 'SET_DEADLINE'
   | 'CLEAR_DEADLINE'
   | 'RENAME_SYLLABUS'
-  | 'SUBMIT_REVISION_REVIEW';
+  | 'SUBMIT_REVISION_REVIEW'
+  | 'SAVE_ACADEMIC_PLAN';
 
 export interface CachedSyllabusRecord {
   id: string; // syllabus ID
@@ -34,8 +36,10 @@ export interface CachedSyllabusRecord {
   pacing?: Record<string, PacingMetrics>;
   notes?: TopicNote[];
   resources?: TopicResource[];
+  academicPlan?: AcademicPlanResponse;
   updatedAt: number;
 }
+
 
 export interface OutboxMutation {
   id: string;

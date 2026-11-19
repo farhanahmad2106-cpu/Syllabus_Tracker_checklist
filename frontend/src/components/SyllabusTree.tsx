@@ -7,6 +7,7 @@ import {
   ChevronDown,
   FileText,
   Folder,
+  GraduationCap,
   Layers,
   Link2,
   Minus,
@@ -20,6 +21,7 @@ import type {
   Semester,
   SetTargetDatePayload,
   Subject,
+  SubjectAcademicPlanItem,
   Subtopic,
 } from '../types/syllabus';
 import { PacingBadge } from './PacingBadge';
@@ -42,7 +44,10 @@ export interface SyllabusTreeProps {
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
   targetNodeId?: string | null;
   onTargetNodeNavigated?: (nodeId: string) => void;
+  academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
+  onOpenAcademicPlan?: (subj: Subject) => void;
 }
+
 
 // Helper to normalize subjects from either 5-level canonical subjects or legacy 4-level topics
 export function getSemesterSubjects(sem: Semester): Subject[] {
@@ -163,6 +168,8 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
   onOpenResource,
   targetNodeId,
   onTargetNodeNavigated,
+  academicPlansMap,
+  onOpenAcademicPlan,
 }) => {
   const completedSet = new Set(completedLeafIds);
 
@@ -287,6 +294,8 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({
             resourceCounts={resourceCounts}
             onOpenNote={onOpenNote}
             onOpenResource={onOpenResource}
+            academicPlansMap={academicPlansMap}
+            onOpenAcademicPlan={onOpenAcademicPlan}
           />
         );
       })}
@@ -345,6 +354,8 @@ interface YearCardProps {
   resourceCounts?: Record<string, number>;
   onOpenNote?: (leafId: string, leafTitle: string) => void;
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
+  academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
+  onOpenAcademicPlan?: (subj: Subject) => void;
 }
 
 const YearCard: React.FC<YearCardProps> = ({
@@ -369,6 +380,8 @@ const YearCard: React.FC<YearCardProps> = ({
   resourceCounts,
   onOpenNote,
   onOpenResource,
+  academicPlansMap,
+  onOpenAcademicPlan,
 }) => {
   const contentId = `year-content-${year.id}`;
   const isTarget = highlightedNodeId === year.id;
@@ -448,6 +461,8 @@ const YearCard: React.FC<YearCardProps> = ({
               resourceCounts={resourceCounts}
               onOpenNote={onOpenNote}
               onOpenResource={onOpenResource}
+              academicPlansMap={academicPlansMap}
+              onOpenAcademicPlan={onOpenAcademicPlan}
             />
           ))}
         </div>
@@ -477,6 +492,8 @@ interface SemesterCardProps {
   resourceCounts?: Record<string, number>;
   onOpenNote?: (leafId: string, leafTitle: string) => void;
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
+  academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
+  onOpenAcademicPlan?: (subj: Subject) => void;
 }
 
 const SemesterCard: React.FC<SemesterCardProps> = ({
@@ -497,6 +514,8 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
   resourceCounts,
   onOpenNote,
   onOpenResource,
+  academicPlansMap,
+  onOpenAcademicPlan,
 }) => {
   const semLeaves = getSemesterLeaves(sem);
   const semState = getBranchState(semLeaves);
@@ -591,6 +610,8 @@ const SemesterCard: React.FC<SemesterCardProps> = ({
               resourceCounts={resourceCounts}
               onOpenNote={onOpenNote}
               onOpenResource={onOpenResource}
+              academicPlansMap={academicPlansMap}
+              onOpenAcademicPlan={onOpenAcademicPlan}
             />
           ))}
         </div>
@@ -620,6 +641,8 @@ interface SubjectCardProps {
   resourceCounts?: Record<string, number>;
   onOpenNote?: (leafId: string, leafTitle: string) => void;
   onOpenResource?: (nodeId: string, nodeType: 'subtopic' | 'module', nodeTitle: string) => void;
+  academicPlansMap?: Record<string, SubjectAcademicPlanItem>;
+  onOpenAcademicPlan?: (subj: Subject) => void;
 }
 
 const SubjectCard: React.FC<SubjectCardProps> = ({
@@ -640,6 +663,8 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
   resourceCounts,
   onOpenNote,
   onOpenResource,
+  academicPlansMap,
+  onOpenAcademicPlan,
 }) => {
   const isEnrolled = isSubjectEnrolled(subj);
   const subjLeaves = getSubjectLeaves(subj, isEnrolled);
@@ -649,6 +674,14 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
     nodeProgress[subj.id] || computeLocalProgress(subjLeaves, completedSet);
   const contentId = `subject-content-${subj.id}`;
   const isTarget = highlightedNodeId === subj.id;
+
+  const plan = academicPlansMap?.[subj.id];
+  const effectiveCredits =
+    plan?.effective_credits !== undefined && plan?.effective_credits !== null
+      ? plan.effective_credits
+      : subj.credits !== undefined && subj.credits !== null
+      ? subj.credits
+      : null;
 
   const needsReview = Boolean(
     (subj as unknown as { evidence_status?: string }).evidence_status === 'needs_review' ||
@@ -700,6 +733,36 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
               </span>
             )}
             <h5 className="text-xs font-semibold text-[var(--text-primary)] break-words break-anywhere">{subj.title}</h5>
+
+            {/* Credit Badge: show compact monospace badge like '4 Cr' only when effective credits > 0 */}
+            {effectiveCredits !== null && effectiveCredits > 0 && (
+              <span
+                data-testid={`badge-credit-${subj.id}`}
+                className="px-1.5 py-0.5 text-[10px] font-mono tabular-nums font-semibold rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0"
+                title={`Academic Weight: ${effectiveCredits} Credits`}
+              >
+                {effectiveCredits} Cr
+              </span>
+            )}
+
+            {/* Academic Plan Modal Trigger */}
+            {isEnrolled && onOpenAcademicPlan && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenAcademicPlan(subj);
+                }}
+                data-testid={`btn-academic-plan-${subj.id}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded hover:bg-[var(--bg-surface-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-transparent hover:border-[var(--border-subtle)] transition-colors cursor-pointer shrink-0"
+                title="Configure Credits and Target Grade"
+                aria-label={`Configure Credits and Grade for ${subj.title}`}
+              >
+                <GraduationCap className="w-3 h-3 text-emerald-500" />
+                <span className="hidden sm:inline">Credits / GPA</span>
+              </button>
+            )}
+
 
             {/* Badges */}
             {subj.is_lab && (
@@ -778,6 +841,8 @@ const SubjectCard: React.FC<SubjectCardProps> = ({
               resourceCounts={resourceCounts}
               onOpenNote={onOpenNote}
               onOpenResource={onOpenResource}
+              academicPlansMap={academicPlansMap}
+              onOpenAcademicPlan={onOpenAcademicPlan}
             />
           ))}
         </div>

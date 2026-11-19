@@ -16,6 +16,7 @@ import {
   submitRevisionReview,
   toggleBranch,
   toggleLeaf,
+  updateSubjectAcademicPlan,
 } from '../lib/api';
 import {
   DEFAULT_USER_ID,
@@ -187,6 +188,15 @@ export function useOfflineSync(options?: UseOfflineSyncOptions) {
                 }
               );
               break;
+
+            case 'SAVE_ACADEMIC_PLAN':
+              await updateSubjectAcademicPlan(
+                mutation.syllabusId,
+                mutation.payload.subjectId,
+                mutation.payload.plan
+              );
+              break;
+
 
             default:
               console.warn('[Sync] Unknown mutation type:', mutation.type);

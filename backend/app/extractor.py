@@ -42,7 +42,7 @@ SYSTEM_EXTRACTION_PROMPT = """You are a document-grounded academic curriculum ex
 Canonical Academic Hierarchy (5 Tiers beneath Document Root):
 1. Academic Year (Tier 1: e.g. Year 1, Year 2)
 2. Semester (Tier 2: e.g. Semester 1, Semester 2)
-3. Subject / Course (Tier 3: e.g. Data Structures, Physics Lab; identify if is_lab or is_elective)
+3. Subject / Course (Tier 3: e.g. Data Structures, Physics Lab; identify if is_lab or is_elective; extract explicit credits and ltp if stated)
 4. Module / Unit (Tier 4: e.g. Unit 1: Arrays; extract explicit contact_hours if stated)
 5. Subtopic (Tier 5: individual completion item with verbatim source_text evidence and source_page)
 
@@ -51,8 +51,11 @@ Extraction Instructions:
 2. For every subtopic leaf, provide verbatim source_text from the document.
 3. Identify laboratory / practical / sessional courses and set is_lab=True.
 4. Identify elective courses and set is_elective=True, with elective_group if indicated.
-5. If module contact hours are explicitly stated, populate contact_hours as an integer; otherwise leave null.
-6. Return only the structured schema.
+5. If course academic credits are explicitly stated in headings or tables, populate credits as a float (e.g. 4.0 or 3.0); otherwise leave null. Do not infer or invent credits.
+6. If Lecture-Tutorial-Practical (L-T-P) breakdown is explicitly stated (e.g. '3-1-0' or '3-0-2'), populate ltp; otherwise leave null.
+7. If module contact hours are explicitly stated, populate contact_hours as an integer; otherwise leave null.
+8. Return only the structured schema.
+
 """
 
 
@@ -350,8 +353,25 @@ def extract_curriculum_rule_based(doc: ParsedDocument) -> ExtractedCurriculum:
             code_match = re.search(r"\b([A-Z]{2,4}\s*[-–]?\s*\d{2,4}[A-Z]?)\b", line)
             if code_match:
                 current_subj.code = code_match.group(1).replace(" ", "")
+
+            # Check for explicit credits, e.g. "Credits: 4" or "(4 Credits)" or "Credits - 3.0"
+            cred_match = re.search(r"(?:credits?|cr\.?)\s*[:=\-]?\s*(\d+(?:\.\d+)?)", line, re.IGNORECASE)
+            if cred_match:
+                try:
+                    c_val = float(cred_match.group(1))
+                    if 0.0 <= c_val <= 30.0:
+                        current_subj.credits = c_val
+                except ValueError:
+                    pass
+
+            # Check for explicit LTP, e.g. "L-T-P: 3-1-0" or "(3-1-0)"
+            ltp_match = re.search(r"\b(\d+)\s*[-–:/]\s*(\d+)\s*[-–:/]\s*(\d+)\b", line)
+            if ltp_match:
+                current_subj.ltp = f"{ltp_match.group(1)}-{ltp_match.group(2)}-{ltp_match.group(3)}"
+
             has_started_structure = True
             continue
+
 
         # Module / Unit detection
         if re.match(r"^(?:unit|module|chapter|part)\s*[:\d\-]", lower) or line.startswith("### "):
