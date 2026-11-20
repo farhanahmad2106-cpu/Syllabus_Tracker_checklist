@@ -2,7 +2,7 @@
 
 from datetime import date, datetime, timezone
 from typing import Optional
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, UniqueConstraint, CheckConstraint, Index
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, Boolean, UniqueConstraint, CheckConstraint, Index
 from sqlalchemy.orm import declarative_base, relationship
 from sqlmodel import SQLModel, Field as DBField, Relationship
 
@@ -436,6 +436,9 @@ class SyllabusRecord(Base):
     schema_version = Column(Integer, default=2, nullable=False)
     hierarchy_json = Column(Text, nullable=False)
     warnings_json = Column(Text, nullable=True, default="[]")
+    calendar_feed_token_hash = Column(String(64), nullable=True, index=True)
+    calendar_feed_enabled = Column(Boolean, default=False, nullable=False)
+    calendar_feed_created_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

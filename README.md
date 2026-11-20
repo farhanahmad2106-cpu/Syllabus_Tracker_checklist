@@ -566,7 +566,11 @@ Supported export formats:
 | Markdown | Readable academic documentation |
 | JSON | Structured curriculum data |
 | Printable HTML | Self-contained printable syllabus |
+| RFC 5545 iCalendar (`.ics`) | Exam deadlines & SM-2 revision schedules |
+| Subscribed Calendar Feed | Live synchronization with Google, Apple & Outlook calendars |
 | Database Backup | Full application data backup |
+
+For comprehensive calendar specifications, event identity algorithms, elective exclusion invariants, and subscription setup guides, refer to [docs/CALENDAR_INTEGRATION.md](file:///c:/Farhan%20Ahmad/Code%20Languages/Mr.%20Z/Anti%20Gravity/Syllabus_Tracker/docs/CALENDAR_INTEGRATION.md).
 
 ### Database Backup and Restore
 

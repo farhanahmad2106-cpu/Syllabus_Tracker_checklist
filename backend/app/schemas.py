@@ -1270,5 +1270,15 @@ class FlashcardBatchSchema(BaseModel):
     )
 
 
+class CalendarFeedTokenResponse(BaseModel):
+    """Secure response containing the subscribable calendar feed URL."""
+    model_config = ConfigDict(strict=False)
+
+    feed_url: str = Field(..., description="High-entropy tokenized calendar subscription URL")
+    enabled: bool = Field(default=True, description="Whether the calendar feed is active")
+    created_at: Optional[datetime] = Field(default=None, description="Timestamp of token generation")
+
+
+
 
 

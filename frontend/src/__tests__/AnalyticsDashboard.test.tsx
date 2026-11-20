@@ -3,13 +3,20 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import * as api from '../lib/api';
+import * as nativeBridge from '../lib/nativeBridge';
 import type { AcademicPlanResponse, DueRevisionsResponse, SyllabusAnalytics } from '../types/syllabus';
 
 vi.mock('../lib/api', () => ({
+  exportSyllabusIcs: vi.fn(() => Promise.resolve('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n')),
   fetchSyllabusAnalytics: vi.fn(),
   fetchDueRevisions: vi.fn(),
   fetchAcademicPlan: vi.fn(),
   submitRevisionReview: vi.fn(),
+}));
+
+vi.mock('../lib/nativeBridge', () => ({
+  exportAndShareFile: vi.fn().mockResolvedValue('downloaded'),
+  isNativePlatform: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../lib/offlineStore', () => ({
@@ -303,5 +310,38 @@ describe('AnalyticsDashboard Component', () => {
       expect(screen.getByText('13d')).toBeInTheDocument();
       expect(screen.getByText('0.23 /day')).toBeInTheDocument();
     }, { timeout: 4000 });
+  });
+
+  it('triggers calendar export and sharing when Sync to Calendar is clicked', async () => {
+    render(
+      <AnalyticsDashboard
+        syllabusId="syl_test_1"
+        syllabusTitle="B.Sc. Data Engineering"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Sync to Calendar \(\.ics\)/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Sync to Calendar \(\.ics\)/i }));
+
+    await waitFor(() => {
+      expect(api.exportSyllabusIcs).toHaveBeenCalledWith(
+        'syl_test_1',
+        expect.objectContaining({
+          includeDeadlines: true,
+          includeRevisions: true,
+          includeCompleted: false,
+        })
+      );
+      expect(nativeBridge.exportAndShareFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: 'B.Sc. Data Engineering_schedule.ics',
+          mimeType: 'text/calendar',
+          dialogTitle: 'Sync Academic Calendar',
+        })
+      );
+    });
   });
 });

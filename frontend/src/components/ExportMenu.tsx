@@ -12,14 +12,23 @@ import {
   X,
   FileJson,
   Share2,
+  Calendar,
+  CalendarPlus,
+  Copy,
+  RotateCw,
+  Trash2,
+  ShieldAlert,
 } from 'lucide-react';
 import type { ExportOptions, BackupRestoreResult } from '../types/syllabus';
 import {
+  exportSyllabusIcs,
+  generateCalendarFeedUrl,
   getExportMarkdownUrl,
   getExportJsonUrl,
   getExportHtmlUrl,
   openPrintableHtml,
   restoreSyllabusBackupFile,
+  revokeCalendarFeed,
 } from '../lib/api';
 import {
   exportAndShareFile,
@@ -43,6 +52,13 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
   const [restoreModalOpen, setRestoreModalOpen] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+  const [feedModalOpen, setFeedModalOpen] = useState<boolean>(false);
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
+  const [isGeneratingFeed, setIsGeneratingFeed] = useState<boolean>(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [feedCopied, setFeedCopied] = useState<boolean>(false);
+  const [confirmRotate, setConfirmRotate] = useState<boolean>(false);
+  const [confirmRevoke, setConfirmRevoke] = useState<boolean>(false);
 
   const isNative = isNativePlatform();
 
@@ -152,6 +168,88 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
       setTimeout(() => setExportFeedback(null), 3000);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleExportCalendar = async () => {
+    setMenuOpen(false);
+    setIsExporting(true);
+    try {
+      const icsText = await exportSyllabusIcs(syllabusId, {
+        includeDeadlines: true,
+        includeRevisions: true,
+        includeCompleted: false,
+      });
+      const outcome = await exportAndShareFile({
+        filename: `${syllabusTitle || syllabusId}_schedule.ics`,
+        mimeType: 'text/calendar',
+        content: icsText,
+        dialogTitle: 'Share Calendar Schedule',
+      });
+      setExportFeedback(outcome === 'shared' ? 'Shared successfully' : 'Downloaded Calendar (.ics)');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } catch (err: unknown) {
+      console.error('Failed to export calendar schedule:', err);
+      setExportFeedback('Export failed');
+      setTimeout(() => setExportFeedback(null), 3000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleGenerateOrRotateFeed = async () => {
+    setIsGeneratingFeed(true);
+    setFeedError(null);
+    setFeedCopied(false);
+    try {
+      const url = await generateCalendarFeedUrl(syllabusId);
+      setFeedUrl(url);
+      setConfirmRotate(false);
+    } catch (err: unknown) {
+      console.error('Failed to generate calendar feed URL:', err);
+      setFeedError(err instanceof Error ? err.message : 'Failed to generate feed URL');
+    } finally {
+      setIsGeneratingFeed(false);
+    }
+  };
+
+  const handleCopyFeedUrl = async () => {
+    if (!feedUrl) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(feedUrl);
+      } else {
+        const input = document.getElementById('calendar-feed-url-input') as HTMLInputElement | null;
+        if (input) {
+          input.select();
+          document.execCommand('copy');
+        }
+      }
+      setFeedCopied(true);
+      setTimeout(() => setFeedCopied(false), 3000);
+    } catch (err) {
+      console.warn('Clipboard write failed:', err);
+      const input = document.getElementById('calendar-feed-url-input') as HTMLInputElement | null;
+      if (input) {
+        input.select();
+      }
+      setFeedError('Unable to access clipboard automatically. Please copy the URL manually.');
+    }
+  };
+
+  const handleRevokeFeed = async () => {
+    setIsGeneratingFeed(true);
+    setFeedError(null);
+    try {
+      await revokeCalendarFeed(syllabusId);
+      setFeedUrl(null);
+      setConfirmRevoke(false);
+      setFeedCopied(false);
+    } catch (err: unknown) {
+      console.error('Failed to revoke calendar feed:', err);
+      setFeedError(err instanceof Error ? err.message : 'Failed to revoke feed');
+    } finally {
+      setIsGeneratingFeed(false);
     }
   };
 
@@ -305,6 +403,40 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                   {isNative ? 'Share HTML Report (.html)' : 'Print / Save PDF (HTML)'}
                 </div>
                 <div className="text-[10px] text-gray-400">Printable offline study summary</div>
+              </div>
+            </button>
+
+            <button
+              onClick={handleExportCalendar}
+              disabled={isExporting}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors cursor-pointer border-t border-gray-100"
+              role="menuitem"
+            >
+              <Calendar className="w-4 h-4 text-amber-600" />
+              <div>
+                <div className="font-medium text-gray-900">
+                  {isNative ? 'Share Calendar (.ics)' : 'Calendar Schedule (.ics)'}
+                </div>
+                <div className="text-[10px] text-gray-400">Deadlines &amp; SM-2 spaced repetition</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                setFeedModalOpen(true);
+                if (!feedUrl) {
+                  handleGenerateOrRotateFeed();
+                }
+              }}
+              disabled={isExporting}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+              role="menuitem"
+            >
+              <CalendarPlus className="w-4 h-4 text-cyan-600" />
+              <div>
+                <div className="font-medium text-gray-900">Subscribe to Calendar Feed...</div>
+                <div className="text-[10px] text-gray-400">Live sync with Google, Apple &amp; Outlook</div>
               </div>
             </button>
 
@@ -552,6 +684,203 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                     <Upload className="w-3.5 h-3.5" /> Execute Restore
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Calendar Subscription Feed Modal */}
+      {feedModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <CalendarPlus className="w-5 h-5 text-cyan-600" /> Calendar Feed Subscription
+              </h3>
+              <button
+                onClick={() => {
+                  setFeedModalOpen(false);
+                  setConfirmRotate(false);
+                  setConfirmRevoke(false);
+                  setFeedError(null);
+                }}
+                className="text-gray-400 hover:text-gray-700 p-1 rounded cursor-pointer"
+                aria-label="Close calendar feed modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs text-gray-700">
+              <p className="text-gray-600">
+                Subscribe in Google Calendar, Apple Calendar, or Microsoft Outlook to synchronize academic exam deadlines and SM-2 spaced repetition reviews automatically.
+              </p>
+
+              {feedUrl ? (
+                <div className="space-y-3">
+                  <div>
+                    <label htmlFor="calendar-feed-url-input" className="block font-semibold text-gray-800 mb-1">
+                      Subscription Feed URL
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="calendar-feed-url-input"
+                        type="text"
+                        readOnly
+                        value={feedUrl}
+                        className="w-full px-3 py-2 text-xs font-mono bg-gray-50 border border-gray-300 rounded-lg text-gray-800 select-all focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyFeedUrl}
+                        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
+                          feedCopied
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-cyan-600 hover:bg-cyan-700 text-white'
+                        }`}
+                        title="Copy subscription URL"
+                      >
+                        {feedCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{feedCopied ? 'Copied!' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-start gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong>Private Bearer Credential:</strong> Anyone with this link can view your academic deadlines and revision schedule. Do not publish it publicly.
+                    </div>
+                  </div>
+
+                  {/* App Subscription Instructions */}
+                  <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-gray-600 text-[11px] space-y-1.5">
+                    <div className="font-semibold text-gray-800">How to subscribe:</div>
+                    <ul className="list-disc pl-4 space-y-1">
+                      <li><strong>Google Calendar:</strong> Other calendars (+) &gt; From URL &gt; Paste link.</li>
+                      <li><strong>Apple Calendar:</strong> File &gt; New Calendar Subscription &gt; Paste link.</li>
+                      <li><strong>Microsoft Outlook:</strong> Add calendar &gt; Subscribe from web &gt; Paste link.</li>
+                    </ul>
+                    <div className="text-[10px] text-gray-500 italic mt-1">
+                      Note: External calendar providers refresh subscribed feeds periodically (every few hours).
+                    </div>
+                  </div>
+
+                  {/* Rotation and Revocation Controls */}
+                  <div className="pt-2 border-t border-gray-100 flex flex-col gap-2">
+                    {confirmRotate ? (
+                      <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 space-y-2">
+                        <div className="text-rose-800 font-semibold text-[11px]">
+                          Rotate Subscription URL? Previous calendar subscriptions will stop updating.
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleGenerateOrRotateFeed}
+                            disabled={isGeneratingFeed}
+                            className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[11px] font-semibold cursor-pointer"
+                          >
+                            {isGeneratingFeed ? 'Rotating...' : 'Yes, Rotate Token'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRotate(false)}
+                            className="px-2.5 py-1 text-gray-600 hover:bg-gray-100 rounded text-[11px] cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : confirmRevoke ? (
+                      <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 space-y-2">
+                        <div className="text-rose-800 font-semibold text-[11px]">
+                          Revoke and disable this calendar feed immediately?
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleRevokeFeed}
+                            disabled={isGeneratingFeed}
+                            className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[11px] font-semibold cursor-pointer"
+                          >
+                            {isGeneratingFeed ? 'Revoking...' : 'Yes, Revoke Feed'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRevoke(false)}
+                            className="px-2.5 py-1 text-gray-600 hover:bg-gray-100 rounded text-[11px] cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmRotate(true)}
+                          disabled={isGeneratingFeed}
+                          className="inline-flex items-center gap-1.5 text-gray-500 hover:text-gray-800 text-[11px] font-medium transition-colors cursor-pointer"
+                        >
+                          <RotateCw className="w-3.5 h-3.5" /> Rotate URL
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmRevoke(true)}
+                          disabled={isGeneratingFeed}
+                          className="inline-flex items-center gap-1.5 text-rose-600 hover:text-rose-700 text-[11px] font-medium transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Revoke Feed
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="py-6 text-center space-y-3">
+                  <p className="text-gray-500 text-xs">
+                    No active calendar feed token found for this syllabus.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleGenerateOrRotateFeed}
+                    disabled={isGeneratingFeed}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                  >
+                    {isGeneratingFeed ? (
+                      <>
+                        <Clock className="w-3.5 h-3.5 animate-spin" /> Generating Secure Feed...
+                      </>
+                    ) : (
+                      <>
+                        <CalendarPlus className="w-4 h-4" /> Generate Subscription Feed
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {feedError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{feedError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedModalOpen(false);
+                  setConfirmRotate(false);
+                  setConfirmRevoke(false);
+                  setFeedError(null);
+                }}
+                className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded text-xs font-semibold cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>

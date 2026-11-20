@@ -61,6 +61,9 @@ class Settings(BaseSettings):
         "http://localhost:5173,http://127.0.0.1:5173,https://localhost,capacitor://localhost"
     )
 
+    # Public base URL for external calendar feeds (falls back to request.base_url)
+    PUBLIC_BASE_URL: Optional[str] = None
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Return CORS origins as a list of strings, splitting comma-separated entries and stripping whitespace.

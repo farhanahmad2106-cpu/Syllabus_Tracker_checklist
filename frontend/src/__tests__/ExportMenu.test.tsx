@@ -6,6 +6,9 @@ import * as api from '../lib/api';
 import * as nativeBridge from '../lib/nativeBridge';
 
 vi.mock('../lib/api', () => ({
+  exportSyllabusIcs: vi.fn(() => Promise.resolve('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n')),
+  generateCalendarFeedUrl: vi.fn(() => Promise.resolve('http://127.0.0.1:8000/api/calendar/feed/mock_token_123.ics')),
+  revokeCalendarFeed: vi.fn(() => Promise.resolve()),
   getExportMarkdownUrl: vi.fn(() => 'http://127.0.0.1:8000/api/syllabus/syl_123/export/markdown'),
   getExportJsonUrl: vi.fn(() => 'http://127.0.0.1:8000/api/syllabus/syl_123/export/json'),
   getExportHtmlUrl: vi.fn(() => 'http://127.0.0.1:8000/api/syllabus/syl_123/export/html'),
@@ -48,6 +51,8 @@ describe('ExportMenu Component', () => {
     expect(screen.getByText('Export Markdown (.md)')).toBeInTheDocument();
     expect(screen.getByText('Download Backup (.json)')).toBeInTheDocument();
     expect(screen.getByText('Print / Save PDF (HTML)')).toBeInTheDocument();
+    expect(screen.getByText('Calendar Schedule (.ics)')).toBeInTheDocument();
+    expect(screen.getByText('Subscribe to Calendar Feed...')).toBeInTheDocument();
     expect(screen.getByText('Share Summary')).toBeInTheDocument();
     expect(screen.getByText('Restore from Backup...')).toBeInTheDocument();
   });
@@ -67,6 +72,7 @@ describe('ExportMenu Component', () => {
     expect(screen.getByText('Share Markdown (.md)')).toBeInTheDocument();
     expect(screen.getByText('Share JSON Backup (.json)')).toBeInTheDocument();
     expect(screen.getByText('Share HTML Report (.html)')).toBeInTheDocument();
+    expect(screen.getByText('Share Calendar (.ics)')).toBeInTheDocument();
   });
 
   it('triggers exportAndShareFile when Markdown option is clicked', async () => {
@@ -161,5 +167,108 @@ describe('ExportMenu Component', () => {
     fireEvent.click(screen.getByText('Restore from Backup...'));
 
     expect(screen.getByText('Restore Syllabus Backup')).toBeInTheDocument();
+  });
+
+  it('triggers exportSyllabusIcs and exportAndShareFile when Calendar option is clicked', async () => {
+    render(
+      <ExportMenu
+        syllabusId="syl_123"
+        syllabusTitle="Computer Networks"
+        onRestoreSuccess={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Export & Backup options/i }));
+    fireEvent.click(screen.getByText('Calendar Schedule (.ics)'));
+
+    await waitFor(() => {
+      expect(api.exportSyllabusIcs).toHaveBeenCalledWith(
+        'syl_123',
+        expect.objectContaining({
+          includeDeadlines: true,
+          includeRevisions: true,
+          includeCompleted: false,
+        })
+      );
+      expect(nativeBridge.exportAndShareFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: 'Computer Networks_schedule.ics',
+          mimeType: 'text/calendar',
+          dialogTitle: 'Share Calendar Schedule',
+        })
+      );
+    });
+  });
+
+  it('opens Calendar Subscription modal, generates feed URL, and copies to clipboard', async () => {
+    // Mock navigator.clipboard
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: writeTextMock,
+      },
+    });
+
+    render(
+      <ExportMenu
+        syllabusId="syl_123"
+        syllabusTitle="Computer Networks"
+        onRestoreSuccess={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Export & Backup options/i }));
+    fireEvent.click(screen.getByText('Subscribe to Calendar Feed...'));
+
+    expect(screen.getByText('Calendar Feed Subscription')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(api.generateCalendarFeedUrl).toHaveBeenCalledWith('syl_123');
+      expect(screen.getByDisplayValue('http://127.0.0.1:8000/api/calendar/feed/mock_token_123.ics')).toBeInTheDocument();
+    });
+
+    const copyBtn = screen.getByTitle('Copy subscription URL');
+    fireEvent.click(copyBtn);
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith('http://127.0.0.1:8000/api/calendar/feed/mock_token_123.ics');
+      expect(screen.getByText('Copied!')).toBeInTheDocument();
+    });
+  });
+
+  it('rotates and revokes calendar subscription token in modal', async () => {
+    render(
+      <ExportMenu
+        syllabusId="syl_123"
+        syllabusTitle="Computer Networks"
+        onRestoreSuccess={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Export & Backup options/i }));
+    fireEvent.click(screen.getByText('Subscribe to Calendar Feed...'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Rotate URL')).toBeInTheDocument();
+      expect(screen.getByText('Revoke Feed')).toBeInTheDocument();
+    });
+
+    // Test rotation confirmation and execution
+    fireEvent.click(screen.getByText('Rotate URL'));
+    expect(screen.getByText(/Rotate Subscription URL\?/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Yes, Rotate Token'));
+
+    await waitFor(() => {
+      expect(api.generateCalendarFeedUrl).toHaveBeenCalledTimes(2);
+    });
+
+    // Test revocation confirmation and execution
+    fireEvent.click(screen.getByText('Revoke Feed'));
+    expect(screen.getByText(/Revoke and disable this calendar feed immediately\?/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Yes, Revoke Feed'));
+
+    await waitFor(() => {
+      expect(api.revokeCalendarFeed).toHaveBeenCalledWith('syl_123');
+    });
   });
 });

@@ -102,6 +102,25 @@ def init_db(db_engine: Optional[Engine] = None) -> None:
                 conn.execute(text("ALTER TABLE syllabi ADD COLUMN source_url VARCHAR(2048)"))
                 conn.commit()
 
+            # Phase 14 Cycle A: Calendar subscription feed fields
+            if "calendar_feed_token_hash" not in columns:
+                conn.execute(text("ALTER TABLE syllabi ADD COLUMN calendar_feed_token_hash VARCHAR(64)"))
+                conn.commit()
+
+            if "calendar_feed_enabled" not in columns:
+                conn.execute(text("ALTER TABLE syllabi ADD COLUMN calendar_feed_enabled BOOLEAN DEFAULT 0"))
+                conn.commit()
+
+            if "calendar_feed_created_at" not in columns:
+                conn.execute(text("ALTER TABLE syllabi ADD COLUMN calendar_feed_created_at DATETIME"))
+                conn.commit()
+
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_syllabi_calendar_feed_token_hash ON syllabi (calendar_feed_token_hash)"))
+                conn.commit()
+            except Exception:
+                pass
+
             # Ensure target_deadlines table is created if running against existing database
             table_check = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='target_deadlines'"))
             if not table_check.fetchone():
@@ -1230,6 +1249,70 @@ def delete_study_flashcard(
     session.delete(card)
     session.flush()
     return True
+
+
+# ===========================================================================
+# Phase 14 Cycle A: Calendar Export & Secure Subscribable Feeds Helpers
+# ===========================================================================
+
+def get_syllabus_by_feed_token_hash(
+    session: Session, token_hash: str
+) -> Optional[SyllabusRecord]:
+    """Retrieve an active, feed-enabled syllabus record matching a SHA-256 token hash."""
+    stmt = select(SyllabusRecord).where(
+        SyllabusRecord.calendar_feed_token_hash == token_hash,
+        SyllabusRecord.calendar_feed_enabled == True,
+    )
+    return session.scalars(stmt).first()
+
+
+def set_syllabus_feed_token(
+    session: Session, syllabus_id: str, token_hash: str
+) -> SyllabusRecord:
+    """Store SHA-256 hash of subscription token, enabling public calendar feed."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    rec.calendar_feed_token_hash = token_hash
+    rec.calendar_feed_enabled = True
+    rec.calendar_feed_created_at = datetime.now(timezone.utc)
+    rec.updated_at = datetime.now(timezone.utc)
+    session.flush()
+    return rec
+
+
+def revoke_syllabus_feed_token(
+    session: Session, syllabus_id: str
+) -> SyllabusRecord:
+    """Revoke and disable public calendar feed for a syllabus."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    rec.calendar_feed_enabled = False
+    rec.calendar_feed_token_hash = None
+    rec.calendar_feed_created_at = None
+    rec.updated_at = datetime.now(timezone.utc)
+    session.flush()
+    return rec
+
+
+def get_active_revision_schedules(
+    session: Session, syllabus_id: str
+) -> List[RevisionSchedule]:
+    """Retrieve all non-suspended revision schedules with a valid next_review_date."""
+    stmt = (
+        select(RevisionSchedule)
+        .where(
+            RevisionSchedule.syllabus_id == syllabus_id,
+            RevisionSchedule.is_suspended == False,
+            RevisionSchedule.next_review_date != None,
+        )
+        .order_by(RevisionSchedule.next_review_date.asc())
+    )
+    return list(session.scalars(stmt).all())
+
 
 
 

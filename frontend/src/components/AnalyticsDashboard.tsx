@@ -17,11 +17,13 @@ import {
   Info,
 } from 'lucide-react';
 import {
+  exportSyllabusIcs,
   fetchAcademicPlan,
   fetchDueRevisions,
   fetchSyllabusAnalytics,
   submitRevisionReview,
 } from '../lib/api';
+import { exportAndShareFile } from '../lib/nativeBridge';
 import { enqueueMutation } from '../lib/offlineStore';
 import type {
   AcademicPlanResponse,
@@ -50,7 +52,7 @@ interface AnalyticsDashboardProps {
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   syllabusId,
-  syllabusTitle: _syllabusTitle,
+  syllabusTitle,
   completedLeafIds: _completedLeafIds,
   onOpenNoteDrawer,
   onOpenResourceModal,
@@ -74,6 +76,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState<boolean>(false);
+  const [calendarSyncFeedback, setCalendarSyncFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     if (academicPlanProp) {
@@ -226,6 +230,35 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       });
     } finally {
       setReviewingLeafId(null);
+    }
+  };
+
+  const handleSyncCalendar = async () => {
+    if (isSyncingCalendar) return;
+    setIsSyncingCalendar(true);
+    setCalendarSyncFeedback(null);
+    try {
+      const icsText = await exportSyllabusIcs(syllabusId, {
+        includeDeadlines: true,
+        includeRevisions: true,
+        includeCompleted: false,
+      });
+      const outcome = await exportAndShareFile({
+        filename: `${syllabusTitle || syllabusId}_schedule.ics`,
+        mimeType: 'text/calendar',
+        content: icsText,
+        dialogTitle: 'Sync Academic Calendar',
+      });
+      setCalendarSyncFeedback(
+        outcome === 'shared' ? 'Shared calendar schedule' : 'Downloaded calendar schedule (.ics)'
+      );
+      setTimeout(() => setCalendarSyncFeedback(null), 3500);
+    } catch (err: unknown) {
+      console.error('Failed to sync calendar:', err);
+      setCalendarSyncFeedback('Failed to sync calendar');
+      setTimeout(() => setCalendarSyncFeedback(null), 3500);
+    } finally {
+      setIsSyncingCalendar(false);
     }
   };
 
@@ -656,6 +689,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             >
               Next 7 Days
             </button>
+            <button
+              type="button"
+              onClick={handleSyncCalendar}
+              disabled={isSyncingCalendar}
+              className="min-h-[44px] px-3 py-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              title="Sync examination deadlines and SM-2 revision schedule to calendar (.ics)"
+              aria-label="Sync to Calendar (.ics)"
+            >
+              {isSyncingCalendar ? (
+                <Clock className="w-3.5 h-3.5 animate-spin text-amber-500" />
+              ) : (
+                <Calendar className="w-3.5 h-3.5 text-amber-500" />
+              )}
+              <span>{isSyncingCalendar ? 'Syncing...' : 'Sync to Calendar (.ics)'}</span>
+            </button>
+            {calendarSyncFeedback && (
+              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 animate-in fade-in">
+                {calendarSyncFeedback}
+              </span>
+            )}
             <button
               type="button"
               onClick={handleRefresh}

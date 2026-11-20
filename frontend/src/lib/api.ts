@@ -8,6 +8,8 @@ import type {
   AppConfigResponse,
   BackupRestorePayload,
   BackupRestoreResult,
+  CalendarExportOptions,
+  CalendarFeedTokenResponse,
   DueRevisionsResponse,
   ExportOptions,
   FlashcardGenerationResponse,
@@ -680,6 +682,59 @@ export async function downloadExportJson(syllabusId: string, options: ExportOpti
 export function openPrintableHtml(syllabusId: string, options: ExportOptions): void {
   const url = getExportHtmlUrl(syllabusId, options);
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+// --- Option-C / Phase 14: RFC 5545 iCalendar & Subscribable Calendar Feeds API ---
+
+export function getExportIcsUrl(syllabusId: string, options?: CalendarExportOptions): string {
+  const params = new URLSearchParams();
+  if (options?.includeDeadlines !== undefined) params.append('include_deadlines', String(options.includeDeadlines));
+  if (options?.includeRevisions !== undefined) params.append('include_revisions', String(options.includeRevisions));
+  if (options?.includeCompleted !== undefined) params.append('include_completed', String(options.includeCompleted));
+  const q = params.toString() ? `?${params.toString()}` : '';
+  return `${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/export/ics${q}`;
+}
+
+export async function exportSyllabusIcs(
+  syllabusId: string,
+  options?: CalendarExportOptions,
+  signal?: AbortSignal
+): Promise<string> {
+  const url = getExportIcsUrl(syllabusId, options);
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    let errorMessage = `Failed to export calendar: ${res.statusText}`;
+    try {
+      const data = await res.json();
+      if (data.detail) errorMessage = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+    } catch {
+      // response was not JSON
+    }
+    throw new ApiError(res.status, errorMessage);
+  }
+  return res.text();
+}
+
+export async function downloadExportIcs(syllabusId: string, options?: CalendarExportOptions): Promise<void> {
+  const url = getExportIcsUrl(syllabusId, options);
+  await downloadFileFromUrl(url, `${syllabusId}_schedule.ics`);
+}
+
+export async function generateCalendarFeedUrl(syllabusId: string, signal?: AbortSignal): Promise<string> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/calendar/feed-token`, {
+    method: 'POST',
+    signal,
+  });
+  const data = await handleResponse<CalendarFeedTokenResponse>(res);
+  return data.feed_url;
+}
+
+export async function revokeCalendarFeed(syllabusId: string, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/calendar/feed-token`, {
+    method: 'DELETE',
+    signal,
+  });
+  return handleResponse<void>(res);
 }
 
 export async function restoreSyllabusBackup(

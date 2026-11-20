@@ -617,6 +617,19 @@ export interface FlashcardGenerationResponse {
   warnings?: string[];
 }
 
+export interface CalendarExportOptions {
+  includeDeadlines?: boolean;
+  includeRevisions?: boolean;
+  includeCompleted?: boolean;
+}
+
+export interface CalendarFeedTokenResponse {
+  feed_url: string;
+  enabled: boolean;
+  created_at?: string;
+}
+
+
 
 
 

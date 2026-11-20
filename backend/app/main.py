@@ -1,13 +1,16 @@
 """FastAPI entrypoint and API router implementation for the Syllabus Tracker."""
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
+import re
+import secrets
 import shutil
 import tempfile
 import uuid
-import re
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
@@ -26,12 +29,14 @@ from backend.app.database import (
     delete_topic_note,
     delete_topic_resource,
     finalize_syllabus_enrollment,
+    get_active_revision_schedules,
     get_all_syllabus_notes,
     get_all_syllabus_resources,
     get_completed_leaf_ids,
     get_db,
     get_study_flashcard,
     get_study_flashcards,
+    get_syllabus_by_feed_token_hash,
     get_syllabus_record,
     get_syllabus_review,
     get_target_deadline,
@@ -42,6 +47,8 @@ from backend.app.database import (
     get_subject_academic_plans,
     init_db,
     list_syllabi_summaries,
+    revoke_syllabus_feed_token,
+    set_syllabus_feed_token,
     update_bulk_completion,
     update_leaf_completion,
     update_syllabus_title,
@@ -82,6 +89,7 @@ from backend.app.schemas import (
     BackupRestoreRequest,
     BackupRestoreResult,
     BulkToggleRequest,
+    CalendarFeedTokenResponse,
     DueRevisionItem,
     DueRevisionsResponse,
     EmbeddedDocumentPreview,
@@ -133,6 +141,7 @@ from backend.app.services.analytics import (
     get_due_revisions,
     record_revision_review,
 )
+from backend.app.services.calendar_service import build_syllabus_ics
 from backend.app.services.export_service import (
     generate_html_report,
     generate_json_backup,
@@ -1446,6 +1455,168 @@ def export_syllabus_html(
         content=html_content,
         media_type="text/html; charset=utf-8",
     )
+
+
+# ===========================================================================
+# Phase 14 Cycle A: RFC 5545 iCalendar Export & Secure Subscribable Feeds
+# ===========================================================================
+
+@app.get("/api/syllabus/{syllabus_id}/export/ics")
+def export_syllabus_ics(
+    syllabus_id: str,
+    include_deadlines: bool = Query(default=True),
+    include_revisions: bool = Query(default=True),
+    include_completed: bool = Query(default=False),
+    session: Session = Depends(get_db),
+):
+    """Export syllabus examination deadlines and SM-2 revision schedule as RFC 5545 iCalendar."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+    deadlines = get_target_deadlines(session, syllabus_id)
+    revisions = get_active_revision_schedules(session, syllabus_id)
+
+    ics_content = build_syllabus_ics(
+        syllabus_id=syllabus.id,
+        syllabus_title=syllabus.title,
+        hierarchy=syllabus,
+        deadlines=deadlines,
+        revisions=revisions,
+        completed_leaf_ids=completed_ids,
+        include_deadlines=include_deadlines,
+        include_revisions=include_revisions,
+        include_completed=include_completed,
+    )
+
+    slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", syllabus.title).strip("_") or "syllabus"
+    filename = f"{slug}_schedule.ics"
+
+    return Response(
+        content=ics_content,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/syllabus/{syllabus_id}/calendar/feed-token", response_model=CalendarFeedTokenResponse)
+def generate_calendar_feed_token(
+    syllabus_id: str,
+    request: Request,
+    session: Session = Depends(get_db),
+):
+    """Generate or rotate a secure random 256-bit subscription token for live calendar synchronization."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    try:
+        updated_rec = set_syllabus_feed_token(session, syllabus_id, token_hash)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    if settings.PUBLIC_BASE_URL:
+        base_url = settings.PUBLIC_BASE_URL.rstrip("/")
+    else:
+        base_url = str(request.base_url).rstrip("/")
+
+    feed_url = f"{base_url}/api/calendar/feed/{raw_token}.ics"
+
+    return CalendarFeedTokenResponse(
+        feed_url=feed_url,
+        enabled=True,
+        created_at=updated_rec.calendar_feed_created_at,
+    )
+
+
+@app.delete("/api/syllabus/{syllabus_id}/calendar/feed-token")
+def revoke_calendar_feed_token(
+    syllabus_id: str,
+    session: Session = Depends(get_db),
+):
+    """Revoke and invalidate the calendar feed subscription for a syllabus."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    try:
+        revoke_syllabus_feed_token(session, syllabus_id)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"success": True, "message": "Calendar feed subscription revoked."},
+    )
+
+
+@app.get("/api/calendar/feed/{token}.ics")
+def get_public_calendar_feed(
+    token: str,
+    include_deadlines: bool = Query(default=True),
+    include_revisions: bool = Query(default=True),
+    include_completed: bool = Query(default=False),
+    session: Session = Depends(get_db),
+):
+    """Public token-authenticated calendar feed for Google Calendar, Apple Calendar, and Outlook."""
+    token_clean = token.strip()
+    if not token_clean or len(token_clean) < 16:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Calendar feed not found or disabled.",
+        )
+
+    token_hash = hashlib.sha256(token_clean.encode("utf-8")).hexdigest()
+    rec = get_syllabus_by_feed_token_hash(session, token_hash)
+
+    if not rec or not rec.calendar_feed_enabled or not rec.calendar_feed_token_hash:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Calendar feed not found or disabled.",
+        )
+
+    if not hmac.compare_digest(rec.calendar_feed_token_hash, token_hash):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Calendar feed not found or disabled.",
+        )
+
+    raw_data = json.loads(rec.hierarchy_json)
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    completed_ids = get_completed_leaf_ids(session, rec.id)
+    deadlines = get_target_deadlines(session, rec.id)
+    revisions = get_active_revision_schedules(session, rec.id)
+
+    ics_content = build_syllabus_ics(
+        syllabus_id=rec.id,
+        syllabus_title=syllabus.title,
+        hierarchy=syllabus,
+        deadlines=deadlines,
+        revisions=revisions,
+        completed_leaf_ids=completed_ids,
+        include_deadlines=include_deadlines,
+        include_revisions=include_revisions,
+        include_completed=include_completed,
+    )
+
+    return Response(
+        content=ics_content,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Cache-Control": "private, no-cache, max-age=300",
+        },
+    )
+
 
 
 @app.post("/api/syllabus/restore-backup", response_model=BackupRestoreResult)
