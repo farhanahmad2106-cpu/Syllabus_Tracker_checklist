@@ -2,7 +2,7 @@
 
 import os
 from typing import List, Optional, Union
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,10 +24,20 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama3.1:8b"
     OLLAMA_FALLBACK_MODEL: str = "qwen2.5:7b"
 
-    # OpenAI / OpenAI-compatible settings
+    # OpenAI / OpenAI-compatible settings (including Groq, Together, DeepSeek)
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
+    GROQ_API_KEY: Optional[str] = None
+
+    @model_validator(mode="after")
+    def resolve_cloud_llm_credentials(self) -> "Settings":
+        """Auto-populate OpenAI credentials from GROQ_API_KEY if Groq is supplied."""
+        if self.GROQ_API_KEY and not self.OPENAI_API_KEY:
+            self.OPENAI_API_KEY = self.GROQ_API_KEY
+        if self.GROQ_API_KEY and not self.OPENAI_BASE_URL:
+            self.OPENAI_BASE_URL = "https://api.groq.com/openai/v1"
+        return self
 
     # Extraction budgets and timeouts
     EXTRACTION_TIMEOUT_SECONDS: int = 180
