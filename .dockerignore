@@ -1,0 +1,46 @@
+.git
+.github
+.gitignore
+.env
+.env.*
+!.env.example
+
+# Frontend artifacts & dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/android/
+frontend/ios/
+frontend/coverage/
+
+# Backend virtual environments & test caches
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases and SQLite WAL files
+*.db
+*.db-wal
+*.db-shm
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Android / iOS keystores and signing certificates
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# Editor and OS caches
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

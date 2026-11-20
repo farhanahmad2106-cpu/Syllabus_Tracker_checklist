@@ -1,7 +1,7 @@
 """Application configuration settings supporting dual-provider LLM extraction and limits."""
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -47,14 +47,29 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_PARSING_JOBS: int = 2
     DOC_CONVERSION_TIMEOUT_SECONDS: int = 30
 
-    CORS_ORIGINS: List[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ]
+    CORS_ORIGINS: Union[str, List[str]] = (
+        "http://localhost:5173,http://127.0.0.1:5173,https://localhost,capacitor://localhost"
     )
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Return CORS origins as a list of strings, splitting comma-separated entries and stripping whitespace.
+
+        Supports comma-separated strings (e.g. 'https://app.vercel.app,https://localhost'),
+        JSON array strings (e.g. '["https://app.vercel.app"]'), or raw Python lists.
+        """
+        if isinstance(self.CORS_ORIGINS, list):
+            return [str(origin).strip() for origin in self.CORS_ORIGINS if str(origin).strip()]
+        val = str(self.CORS_ORIGINS).strip()
+        if val.startswith("[") and val.endswith("]"):
+            try:
+                import json
+                parsed = json.loads(val)
+                if isinstance(parsed, list):
+                    return [str(origin).strip() for origin in parsed if str(origin).strip()]
+            except Exception:
+                pass
+        return [origin.strip() for origin in val.split(",") if origin.strip()]
     LOG_LEVEL: str = "INFO"
 
     @field_validator("EXTRACTION_PROVIDER")
