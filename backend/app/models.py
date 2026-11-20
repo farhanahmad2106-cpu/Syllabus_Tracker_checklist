@@ -3,7 +3,7 @@
 from datetime import date, datetime, timezone
 from typing import Optional
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, Boolean, UniqueConstraint, CheckConstraint, Index
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
 from sqlmodel import SQLModel, Field as DBField, Relationship
 
 Base = declarative_base(metadata=SQLModel.metadata)
@@ -427,24 +427,24 @@ class SyllabusRecord(Base):
     """Stores the canonical syllabus metadata and serialized hierarchy JSON."""
     __tablename__ = "syllabi"
 
-    id = Column(String(64), primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    source_filename = Column(String(255), nullable=False)
-    source_type = Column(String(32), default="upload", nullable=False)
-    source_url = Column(String(2048), nullable=True)
-    content_hash = Column(String(64), nullable=True, index=True)
-    schema_version = Column(Integer, default=2, nullable=False)
-    hierarchy_json = Column(Text, nullable=False)
-    warnings_json = Column(Text, nullable=True, default="[]")
-    calendar_feed_token_hash = Column(String(64), nullable=True, index=True)
-    calendar_feed_enabled = Column(Boolean, default=False, nullable=False)
-    calendar_feed_created_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), default="upload", nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    hierarchy_json: Mapped[str] = mapped_column(Text, nullable=False)
+    warnings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="[]")
+    calendar_feed_token_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    calendar_feed_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    calendar_feed_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
-    updated_at = Column(
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
@@ -512,15 +512,15 @@ class LeafCompletionRecord(Base):
     """Tracks completed leaf subtopics for a syllabus."""
     __tablename__ = "leaf_completions"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    syllabus_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    syllabus_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("syllabi.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    leaf_id = Column(String(128), nullable=False, index=True)
-    completed_at = Column(
+    leaf_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    completed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
