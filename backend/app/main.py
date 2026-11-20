@@ -1,6 +1,7 @@
 """FastAPI entrypoint and API router implementation for the Syllabus Tracker."""
 
 import asyncio
+from datetime import date, datetime, timezone
 import hashlib
 import hmac
 import json
