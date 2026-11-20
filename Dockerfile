@@ -31,7 +31,6 @@ COPY backend/ /app/backend/
 RUN mkdir -p /app/data
 
 # Declare volume mount for persistent SQLite storage
-VOLUME ["/app/data"]
 
 EXPOSE 8000
 
