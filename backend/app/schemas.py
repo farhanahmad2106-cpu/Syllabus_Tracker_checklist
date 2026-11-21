@@ -728,8 +728,20 @@ class ExportOptions(BaseModel):
 class BackupRestoreRequest(BaseModel):
     """Request payload to restore a syllabus backup."""
     backup_data: Dict[str, Any]
-    mode: Literal["clone", "replace"] = "clone"
+    mode: Literal["clone", "replace", "merge"] = "clone"
     target_syllabus_id: Optional[str] = None
+    passphrase: Optional[str] = None
+
+
+class ArchiveExportRequest(BaseModel):
+    """Request payload for export archive with optional passphrase encryption."""
+    model_config = ConfigDict(strict=False)
+
+    passphrase: Optional[str] = None
+    include_notes: bool = True
+    include_resources: bool = True
+    include_pacing: bool = True
+    enrolled_only: bool = True
 
 
 class BackupRestoreResult(BaseModel):
@@ -742,22 +754,32 @@ class BackupRestoreResult(BaseModel):
     restored_notes: int = 0
     restored_resources: int = 0
     restored_deadlines: int = 0
+    restored_revision_schedules: int = 0
+    restored_academic_plans: int = 0
+    restored_flashcards: int = 0
+    mode: str = "clone"
+    source_schema_version: str = "2.2"
     warnings: List[str] = Field(default_factory=list)
 
 
 class BackupEnvelope(BaseModel):
-    """Versioned portable backup envelope (Schema 2.1)."""
+    """Versioned portable backup envelope (Schema 2.2)."""
     model_config = ConfigDict(strict=False)
 
-    schema_version: str = "2.1"
+    schema_version: str = "2.2"
     application: str = "Hierarchical Syllabus Checklist & Progress Tracker"
     exported_at: str
+    export_metadata: Optional[Dict[str, Any]] = None
     syllabus: Dict[str, Any]
     enrollment: Optional[Dict[str, Any]] = None
     completed_leaves: List[str] = Field(default_factory=list)
     notes: Dict[str, str] = Field(default_factory=dict)
     resources: List[Dict[str, Any]] = Field(default_factory=list)
     deadlines: Dict[str, Any] = Field(default_factory=dict)
+    revision_schedules: List[Dict[str, Any]] = Field(default_factory=list)
+    academic_plans: List[Dict[str, Any]] = Field(default_factory=list)
+    flashcards: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Optional[Dict[str, Any]] = None
 
 
 # --- Option-C: Web Scraper & URL Ingestion Schemas ---

@@ -299,8 +299,9 @@ export interface ExportOptions {
 
 export interface BackupRestorePayload {
   backup_data: Record<string, unknown>;
-  mode: 'clone' | 'replace';
+  mode: 'clone' | 'replace' | 'merge';
   target_syllabus_id?: string;
+  passphrase?: string;
 }
 
 export interface BackupRestoreResult {
@@ -310,6 +311,11 @@ export interface BackupRestoreResult {
   restored_notes: number;
   restored_resources: number;
   restored_deadlines: number;
+  restored_revision_schedules?: number;
+  restored_academic_plans?: number;
+  restored_flashcards?: number;
+  mode?: string;
+  source_schema_version?: string;
   warnings: string[];
 }
 

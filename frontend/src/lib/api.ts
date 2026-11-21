@@ -99,7 +99,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
     try {
       const data = await response.json();
       if (data.detail) {
-        errorMessage = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+        if (typeof data.detail === 'object' && data.detail !== null) {
+          errorMessage = data.detail.message || JSON.stringify(data.detail);
+          if (data.detail.code) {
+            code = data.detail.code;
+          }
+        } else {
+          errorMessage = String(data.detail);
+        }
       }
       if (data.error_type) {
         errorType = data.error_type;
@@ -737,6 +744,37 @@ export async function revokeCalendarFeed(syllabusId: string, signal?: AbortSigna
   return handleResponse<void>(res);
 }
 
+export async function exportSyllabusArchive(
+  syllabusId: string,
+  passphrase?: string,
+  options?: ExportOptions,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await fetch(`${API_BASE}/syllabus/${encodeURIComponent(syllabusId)}/export/archive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      passphrase: passphrase || undefined,
+      include_notes: options?.include_notes ?? true,
+      include_resources: options?.include_resources ?? true,
+      include_pacing: options?.include_pacing ?? true,
+      enrolled_only: options?.enrolled_only ?? true,
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const errJson = await res.json();
+      detail = typeof errJson.detail === 'string' ? errJson.detail : (errJson.detail?.message || JSON.stringify(errJson.detail));
+    } catch {
+      // fallback
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return res.text();
+}
+
 export async function restoreSyllabusBackup(
   payload: BackupRestorePayload,
   signal?: AbortSignal
@@ -752,8 +790,9 @@ export async function restoreSyllabusBackup(
 
 export async function restoreSyllabusBackupFile(
   file: File,
-  mode: 'clone' | 'replace',
+  mode: 'clone' | 'replace' | 'merge',
   targetSyllabusId?: string,
+  passphrase?: string,
   signal?: AbortSignal
 ): Promise<BackupRestoreResult> {
   const formData = new FormData();
@@ -761,6 +800,9 @@ export async function restoreSyllabusBackupFile(
   formData.append('mode', mode);
   if (targetSyllabusId) {
     formData.append('target_syllabus_id', targetSyllabusId);
+  }
+  if (passphrase) {
+    formData.append('passphrase', passphrase);
   }
 
   const res = await fetch(`${API_BASE}/syllabus/restore-backup`, {

@@ -31,6 +31,7 @@ from backend.app.database import (
     delete_topic_resource,
     finalize_syllabus_enrollment,
     get_active_revision_schedules,
+    get_all_revision_schedules,
     get_all_syllabus_notes,
     get_all_syllabus_resources,
     get_completed_leaf_ids,
@@ -86,6 +87,7 @@ from backend.app.schemas import (
     AcademicPlanResponse,
     AddResourceRequest,
     AppConfigResponse,
+    ArchiveExportRequest,
     BackupEnvelope,
     BackupRestoreRequest,
     BackupRestoreResult,
@@ -142,8 +144,15 @@ from backend.app.services.analytics import (
     get_due_revisions,
     record_revision_review,
 )
+from backend.app.services.archive_crypto import (
+    ArchiveDecryptionError,
+    decrypt_archive_payload,
+    encrypt_archive_payload,
+    is_encrypted_archive,
+)
 from backend.app.services.calendar_service import build_syllabus_ics
 from backend.app.services.export_service import (
+    build_json_backup,
     generate_html_report,
     generate_json_backup,
     generate_markdown_export,
@@ -770,7 +779,7 @@ def finalize_enrollment_endpoint(
         raise
 
     rec = get_syllabus_record(session, syllabus_id)
-    warnings = json.loads(rec.warnings_json) if rec and rec.warnings_json else []
+    warnings = json.loads(str(rec.warnings_json)) if rec and rec.warnings_json else []
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
     prog, node_prog = calculate_syllabus_progress(updated_syllabus, completed_ids)
 
@@ -800,9 +809,9 @@ def get_syllabus(syllabus_id: str, session: Session = Depends(get_db)):
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
-    warnings = json.loads(rec.warnings_json) if rec.warnings_json else []
+    warnings = json.loads(str(rec.warnings_json)) if rec.warnings_json else []
 
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
     prog, node_prog = calculate_syllabus_progress(syllabus, completed_ids)
@@ -827,8 +836,8 @@ def toggle_leaf(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
-    warnings = json.loads(rec.warnings_json) if rec.warnings_json else []
+    syllabus = HierarchicalSyllabus.model_validate(json.loads(str(rec.hierarchy_json)))
+    warnings = json.loads(str(rec.warnings_json)) if rec.warnings_json else []
 
     target_completed = payload.target_completed
 
@@ -871,8 +880,8 @@ def toggle_branch(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
-    warnings = json.loads(rec.warnings_json) if rec.warnings_json else []
+    syllabus = HierarchicalSyllabus.model_validate(json.loads(str(rec.hierarchy_json)))
+    warnings = json.loads(str(rec.warnings_json)) if rec.warnings_json else []
 
     explicit_target = payload.target_completed
 
@@ -937,8 +946,8 @@ def rename_syllabus(
         session.rollback()
         raise
 
-    syllabus = HierarchicalSyllabus.model_validate(json.loads(updated_rec.hierarchy_json))
-    warnings = json.loads(updated_rec.warnings_json) if updated_rec.warnings_json else []
+    syllabus = HierarchicalSyllabus.model_validate(json.loads(str(updated_rec.hierarchy_json)))
+    warnings = json.loads(str(updated_rec.warnings_json)) if updated_rec.warnings_json else []
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
     prog, node_prog = calculate_syllabus_progress(syllabus, completed_ids)
 
@@ -975,7 +984,7 @@ def get_syllabus_pacing_summary(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
+    syllabus = HierarchicalSyllabus.model_validate(json.loads(str(rec.hierarchy_json)))
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
     deadline_records = get_target_deadlines(session, syllabus_id)
 
@@ -1007,7 +1016,7 @@ def set_or_update_target_deadline(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    syllabus = HierarchicalSyllabus.model_validate(json.loads(rec.hierarchy_json))
+    syllabus = HierarchicalSyllabus.model_validate(json.loads(str(rec.hierarchy_json)))
 
     lookup = find_node_in_syllabus(syllabus, payload.node_id)
     if not lookup:
@@ -1108,7 +1117,7 @@ def get_topic_study_note(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     valid_leaves = set(get_all_leaf_ids(syllabus))
     if leaf_id not in valid_leaves:
@@ -1140,7 +1149,7 @@ def save_topic_study_note(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     valid_leaves = set(get_all_leaf_ids(syllabus))
     if leaf_id not in valid_leaves:
@@ -1227,7 +1236,7 @@ def add_resource_to_syllabus(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
 
     if payload.node_type == "subtopic":
@@ -1320,7 +1329,7 @@ def export_syllabus_markdown(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
 
@@ -1367,12 +1376,12 @@ def export_syllabus_json(
     enrolled_only: bool = Query(default=True),
     session: Session = Depends(get_db),
 ):
-    """Export portable, versioned JSON backup envelope (Schema 2.1)."""
+    """Export portable, versioned JSON backup envelope (Schema 2.2)."""
     rec = get_syllabus_record(session, syllabus_id)
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
 
@@ -1384,6 +1393,10 @@ def export_syllabus_json(
     deadlines = get_target_deadlines(session, syllabus_id)
     deadlines_map = {d.node_id: d for d in deadlines}
 
+    revisions = get_all_revision_schedules(session, syllabus_id)
+    academic_plans = get_subject_academic_plans(session, syllabus_id)
+    flashcards = get_study_flashcards(session, syllabus_id)
+
     options = ExportOptions(
         include_notes=include_notes,
         include_resources=include_resources,
@@ -1391,13 +1404,16 @@ def export_syllabus_json(
         enrolled_only=enrolled_only,
     )
 
-    backup_dict = generate_json_backup(
+    backup_dict = build_json_backup(
         syllabus=syllabus,
         completed_leaf_ids=completed_ids,
         notes_map=notes_map,
         resources_list=resources,
         deadlines_map=deadlines_map,
         options=options,
+        revision_schedules=revisions,
+        academic_plans=academic_plans,
+        flashcards=flashcards,
     )
 
     slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", syllabus.title).strip("_") or "syllabus"
@@ -1408,6 +1424,69 @@ def export_syllabus_json(
         media_type="application/json; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/syllabus/{syllabus_id}/export/archive")
+def export_syllabus_archive(
+    syllabus_id: str,
+    payload: Optional[ArchiveExportRequest] = None,
+    session: Session = Depends(get_db),
+):
+    """Export complete Schema 2.2 academic archive, with optional AES-256-GCM passphrase encryption."""
+    rec = get_syllabus_record(session, syllabus_id)
+    if not rec:
+        raise SyllabusNotFoundError(syllabus_id)
+
+    raw_data = json.loads(str(rec.hierarchy_json))
+    syllabus = HierarchicalSyllabus.model_validate(raw_data)
+    completed_ids = get_completed_leaf_ids(session, syllabus_id)
+
+    notes = get_all_syllabus_notes(session, syllabus_id)
+    notes_map = {n.leaf_id: n.content for n in notes}
+
+    resources = get_all_syllabus_resources(session, syllabus_id)
+
+    deadlines = get_target_deadlines(session, syllabus_id)
+    deadlines_map = {d.node_id: d for d in deadlines}
+
+    revisions = get_all_revision_schedules(session, syllabus_id)
+    academic_plans = get_subject_academic_plans(session, syllabus_id)
+    flashcards = get_study_flashcards(session, syllabus_id)
+
+    opts = payload if payload else ArchiveExportRequest()
+    options = ExportOptions(
+        include_notes=opts.include_notes,
+        include_resources=opts.include_resources,
+        include_pacing=opts.include_pacing,
+        enrolled_only=opts.enrolled_only,
+    )
+
+    backup_dict = build_json_backup(
+        syllabus=syllabus,
+        completed_leaf_ids=completed_ids,
+        notes_map=notes_map,
+        resources_list=resources,
+        deadlines_map=deadlines_map,
+        options=options,
+        revision_schedules=revisions,
+        academic_plans=academic_plans,
+        flashcards=flashcards,
+    )
+
+    if payload and payload.passphrase and payload.passphrase.strip():
+        try:
+            envelope = encrypt_archive_payload(
+                plaintext_json=json.dumps(backup_dict),
+                passphrase=payload.passphrase,
+            )
+            return JSONResponse(content=envelope)
+        except ValueError as ve:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(ve),
+            )
+
+    return JSONResponse(content=backup_dict)
 
 
 @app.get("/api/syllabus/{syllabus_id}/export/html")
@@ -1424,7 +1503,7 @@ def export_syllabus_html(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
 
@@ -1475,7 +1554,7 @@ def export_syllabus_ics(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     completed_ids = get_completed_leaf_ids(session, syllabus_id)
     deadlines = get_target_deadlines(session, syllabus_id)
@@ -1592,7 +1671,7 @@ def get_public_calendar_feed(
             detail="Calendar feed not found or disabled.",
         )
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     completed_ids = get_completed_leaf_ids(session, rec.id)
     deadlines = get_target_deadlines(session, rec.id)
@@ -1631,6 +1710,7 @@ async def restore_syllabus_backup_endpoint(
     backup_payload: Dict[str, Any] = {}
     mode = "clone"
     target_syllabus_id = None
+    passphrase: Optional[str] = None
 
     if "multipart/form-data" in content_type:
         form = await request.form()
@@ -1650,6 +1730,7 @@ async def restore_syllabus_backup_endpoint(
             )
         mode = form.get("mode", "clone")
         target_syllabus_id = form.get("target_syllabus_id")
+        passphrase = form.get("passphrase")
     else:
         try:
             body = await request.json()
@@ -1662,10 +1743,39 @@ async def restore_syllabus_backup_endpoint(
             backup_payload = body["backup_data"]
             mode = body.get("mode", "clone")
             target_syllabus_id = body.get("target_syllabus_id")
+            passphrase = body.get("passphrase")
+        elif "backup" in body:
+            backup_payload = body["backup"]
+            mode = body.get("mode", "clone")
+            target_syllabus_id = body.get("target_syllabus_id")
+            passphrase = body.get("passphrase")
         else:
             backup_payload = body
             mode = body.get("mode", "clone") if "mode" in body else "clone"
             target_syllabus_id = body.get("target_syllabus_id")
+            passphrase = body.get("passphrase")
+
+    # Encrypted envelope authentication & decryption
+    if is_encrypted_archive(backup_payload):
+        if not passphrase or not passphrase.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "PASSPHRASE_REQUIRED",
+                    "message": "This archive is encrypted. Enter its passphrase to continue.",
+                },
+            )
+        try:
+            plaintext_json = decrypt_archive_payload(backup_payload, passphrase)
+            backup_payload = json.loads(plaintext_json)
+        except ArchiveDecryptionError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "INVALID_PASSPHRASE_OR_CORRUPT_ARCHIVE",
+                    "message": "Failed to decrypt archive. Invalid passphrase or corrupt archive.",
+                },
+            )
 
     try:
         result = restore_backup(
@@ -1700,7 +1810,7 @@ def get_syllabus_analytics(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
 
     parsed_ref_date = date.fromisoformat(reference_date) if reference_date else None
@@ -1724,7 +1834,7 @@ def get_due_revisions_endpoint(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
 
     parsed_ref_date = date.fromisoformat(reference_date) if reference_date else None
@@ -1784,7 +1894,7 @@ def get_academic_plan_endpoint(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
     completed_ids = set(get_completed_leaf_ids(session, syllabus_id))
 
@@ -1810,7 +1920,7 @@ def update_subject_academic_plan_endpoint(
     if not rec:
         raise SyllabusNotFoundError(syllabus_id)
 
-    raw_data = json.loads(rec.hierarchy_json)
+    raw_data = json.loads(str(rec.hierarchy_json))
     syllabus = HierarchicalSyllabus.model_validate(raw_data)
 
     # Verify subject exists in syllabus and determine enrollment status

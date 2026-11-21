@@ -8,7 +8,13 @@ import html
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import quote
 
-from backend.app.models import TargetDeadline, TopicResource
+from backend.app.models import (
+    RevisionSchedule,
+    StudyFlashcard,
+    SubjectAcademicPlan,
+    TargetDeadline,
+    TopicResource,
+)
 from backend.app.schemas import (
     BackupEnvelope,
     ExportOptions,
@@ -143,15 +149,18 @@ def generate_markdown_export(
     return "\n".join(lines).strip() + "\n"
 
 
-def generate_json_backup(
+def build_json_backup(
     syllabus: HierarchicalSyllabus,
     completed_leaf_ids: Set[str],
     notes_map: Dict[str, str],
     resources_list: List[TopicResource],
     deadlines_map: Dict[str, TargetDeadline],
     options: ExportOptions,
+    revision_schedules: Optional[List[RevisionSchedule]] = None,
+    academic_plans: Optional[List[SubjectAcademicPlan]] = None,
+    flashcards: Optional[List[StudyFlashcard]] = None,
 ) -> Dict[str, Any]:
-    """Generate a structured, portable JSON backup adhering to Schema 2.1."""
+    """Generate a structured, portable JSON backup adhering to Schema 2.2."""
     enrolled_ids = [
         s.id
         for yr in syllabus.years
@@ -159,6 +168,14 @@ def generate_json_backup(
         for s in sem.subjects
         if s.is_enrolled
     ]
+
+    valid_leaves = set(get_all_leaf_ids(syllabus))
+    valid_subjects = {
+        s.id
+        for yr in syllabus.years
+        for sem in yr.semesters
+        for s in sem.subjects
+    }
 
     resources_data = []
     if options.include_resources:
@@ -185,10 +202,63 @@ def generate_json_backup(
                 "updated_at": d.updated_at.isoformat() if hasattr(d.updated_at, "isoformat") else str(d.updated_at),
             }
 
+    # Schema 2.2 study entities with referential integrity filtering
+    revisions_data = []
+    if revision_schedules:
+        for rs in revision_schedules:
+            if rs.leaf_id in valid_leaves:
+                revisions_data.append({
+                    "leaf_id": rs.leaf_id,
+                    "algorithm_version": rs.algorithm_version,
+                    "repetition_count": rs.repetition_count,
+                    "ease_factor": rs.ease_factor,
+                    "interval_days": rs.interval_days,
+                    "next_review_date": rs.next_review_date.isoformat() if rs.next_review_date else None,
+                    "last_reviewed_at": rs.last_reviewed_at.isoformat() if rs.last_reviewed_at else None,
+                    "last_quality": rs.last_quality,
+                    "is_suspended": rs.is_suspended,
+                })
+
+    academic_plans_data = []
+    if academic_plans:
+        for ap in academic_plans:
+            if ap.subject_id in valid_subjects:
+                academic_plans_data.append({
+                    "subject_id": ap.subject_id,
+                    "credit_override": ap.credit_override,
+                    "target_grade_points": ap.target_grade_points,
+                    "grade_scale": ap.grade_scale,
+                })
+
+    flashcards_data = []
+    if flashcards:
+        for fc in flashcards:
+            if fc.leaf_id in valid_leaves:
+                flashcards_data.append({
+                    "leaf_id": fc.leaf_id,
+                    "front_question": fc.front_question,
+                    "back_answer": fc.back_answer,
+                    "citation_label": fc.citation_label,
+                    "source_quote": fc.source_quote,
+                    "source_type": fc.source_type,
+                    "source_page": fc.source_page,
+                    "created_by": fc.created_by,
+                    "fingerprint": fc.fingerprint,
+                    "created_at": fc.created_at.isoformat() if hasattr(fc.created_at, "isoformat") else str(fc.created_at),
+                    "updated_at": fc.updated_at.isoformat() if hasattr(fc.updated_at, "isoformat") else str(fc.updated_at),
+                })
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
     envelope = BackupEnvelope(
-        schema_version="2.1",
+        schema_version="2.2",
         application="Hierarchical Syllabus Checklist & Progress Tracker",
-        exported_at=datetime.now(timezone.utc).isoformat(),
+        exported_at=now_iso,
+        export_metadata={
+            "exported_at": now_iso,
+            "application_version": "1.0.0",
+            "archive_format": "syllabus-tracker-json",
+        },
         syllabus=syllabus.model_dump(),
         enrollment={
             "requires_confirmation": syllabus.requires_enrollment_confirmation,
@@ -198,6 +268,9 @@ def generate_json_backup(
         notes=notes_map if options.include_notes else {},
         resources=resources_data,
         deadlines=deadlines_data,
+        revision_schedules=revisions_data,
+        academic_plans=academic_plans_data,
+        flashcards=flashcards_data,
         metadata={
             "source_filename": syllabus.source_filename,
             "options": options.model_dump(),
@@ -205,6 +278,31 @@ def generate_json_backup(
     )
 
     return envelope.model_dump()
+
+
+def generate_json_backup(
+    syllabus: HierarchicalSyllabus,
+    completed_leaf_ids: Set[str],
+    notes_map: Dict[str, str],
+    resources_list: List[TopicResource],
+    deadlines_map: Dict[str, TargetDeadline],
+    options: ExportOptions,
+    revision_schedules: Optional[List[RevisionSchedule]] = None,
+    academic_plans: Optional[List[SubjectAcademicPlan]] = None,
+    flashcards: Optional[List[StudyFlashcard]] = None,
+) -> Dict[str, Any]:
+    """Backward-compatible alias for build_json_backup."""
+    return build_json_backup(
+        syllabus=syllabus,
+        completed_leaf_ids=completed_leaf_ids,
+        notes_map=notes_map,
+        resources_list=resources_list,
+        deadlines_map=deadlines_map,
+        options=options,
+        revision_schedules=revision_schedules,
+        academic_plans=academic_plans,
+        flashcards=flashcards,
+    )
 
 
 def generate_html_report(

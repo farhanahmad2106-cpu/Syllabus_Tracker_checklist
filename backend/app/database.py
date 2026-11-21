@@ -1314,6 +1314,19 @@ def get_active_revision_schedules(
     return list(session.scalars(stmt).all())
 
 
+def get_all_revision_schedules(
+    session: Session, syllabus_id: str
+) -> List[RevisionSchedule]:
+    """Retrieve all revision schedules for a syllabus (including suspended)."""
+    stmt = (
+        select(RevisionSchedule)
+        .where(RevisionSchedule.syllabus_id == syllabus_id)
+        .order_by(RevisionSchedule.leaf_id.asc())
+    )
+    return list(session.scalars(stmt).all())
+
+
+
 
 
 

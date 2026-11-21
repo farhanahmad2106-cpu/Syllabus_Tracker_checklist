@@ -18,9 +18,14 @@ import {
   RotateCw,
   Trash2,
   ShieldAlert,
+  ShieldCheck,
+  Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import type { ExportOptions, BackupRestoreResult } from '../types/syllabus';
 import {
+  exportSyllabusArchive,
   exportSyllabusIcs,
   generateCalendarFeedUrl,
   getExportMarkdownUrl,
@@ -72,11 +77,23 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
 
   // Restore state
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
-  const [restoreMode, setRestoreMode] = useState<'clone' | 'replace'>('clone');
+  const [restoreMode, setRestoreMode] = useState<'clone' | 'replace' | 'merge'>('clone');
   const [confirmReplace, setConfirmReplace] = useState<boolean>(false);
   const [restoring, setRestoring] = useState<boolean>(false);
   const [restoreResult, setRestoreResult] = useState<BackupRestoreResult | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  // Encrypted export state
+  const [encryptModalOpen, setEncryptModalOpen] = useState<boolean>(false);
+  const [exportPassphrase, setExportPassphrase] = useState<string>('');
+  const [confirmPassphrase, setConfirmPassphrase] = useState<string>('');
+  const [showExportPassphrase, setShowExportPassphrase] = useState<boolean>(false);
+  const [encryptError, setEncryptError] = useState<string | null>(null);
+
+  // Encrypted restore state
+  const [isEncryptedArchive, setIsEncryptedArchive] = useState<boolean>(false);
+  const [restorePassphrase, setRestorePassphrase] = useState<string>('');
+  const [showRestorePassphrase, setShowRestorePassphrase] = useState<boolean>(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -269,10 +286,66 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
     }
   };
 
+  const handleExportEncrypted = async () => {
+    if (!exportPassphrase.trim()) {
+      setEncryptError('Passphrase cannot be empty or whitespace only.');
+      return;
+    }
+    if (exportPassphrase.length < 4) {
+      setEncryptError('Passphrase must be at least 4 characters long.');
+      return;
+    }
+    if (exportPassphrase !== confirmPassphrase) {
+      setEncryptError('Passphrases do not match.');
+      return;
+    }
+
+    setIsExporting(true);
+    setEncryptError(null);
+    try {
+      const content = await exportSyllabusArchive(syllabusId, exportPassphrase, options);
+      const nowIsoDate = new Date().toISOString().slice(0, 10);
+      const filename = `${syllabusTitle || syllabusId}-encrypted-${nowIsoDate}.json`;
+      const outcome = await exportAndShareFile({
+        filename,
+        mimeType: 'application/json',
+        content,
+        dialogTitle: 'Share Encrypted Syllabus Archive',
+      });
+      setExportFeedback(outcome === 'shared' ? 'Shared encrypted archive' : 'Downloaded encrypted archive');
+      setTimeout(() => setExportFeedback(null), 3000);
+      setEncryptModalOpen(false);
+      setExportPassphrase('');
+      setConfirmPassphrase('');
+    } catch (err: unknown) {
+      console.error('Failed to export encrypted archive:', err);
+      setEncryptError(err instanceof Error ? err.message : 'Encryption export failed');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setRestoreFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setRestoreFile(file);
       setRestoreError(null);
+      setRestorePassphrase('');
+      setIsEncryptedArchive(false);
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = event.target?.result as string;
+          const parsed = JSON.parse(text);
+          if (parsed && parsed.format === 'syllabus-tracker-encrypted-archive') {
+            setIsEncryptedArchive(true);
+          }
+        } catch {
+          // Non-JSON or read error handled on submit
+        }
+      };
+      reader.readAsText(file);
     }
   };
 
@@ -287,6 +360,11 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
       return;
     }
 
+    if (isEncryptedArchive && !restorePassphrase.trim()) {
+      setRestoreError('This archive is encrypted. Please enter the passphrase.');
+      return;
+    }
+
     setRestoring(true);
     setRestoreError(null);
     setRestoreResult(null);
@@ -295,7 +373,8 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
       const result = await restoreSyllabusBackupFile(
         restoreFile,
         restoreMode,
-        restoreMode === 'replace' ? syllabusId : undefined
+        restoreMode !== 'clone' ? syllabusId : undefined,
+        restorePassphrase || undefined
       );
 
       setRestoreResult(result);
@@ -304,12 +383,24 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
           setRestoreModalOpen(false);
           setRestoreFile(null);
           setRestoreResult(null);
+          setRestorePassphrase('');
+          setIsEncryptedArchive(false);
           onRestoreSuccess(result.syllabus_id);
         }, 1500);
       }
     } catch (err: unknown) {
       console.error('Restore failed:', err);
-      setRestoreError(err instanceof Error ? err.message : 'Restore failed.');
+      let msg = err instanceof Error ? err.message : 'Restore failed.';
+      if (typeof err === 'object' && err !== null && 'code' in err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'PASSPHRASE_REQUIRED') {
+          msg = 'This archive is encrypted. Please enter its passphrase to restore.';
+          setIsEncryptedArchive(true);
+        } else if (code === 'INVALID_PASSPHRASE_OR_CORRUPT_ARCHIVE') {
+          msg = 'Decryption failed: Incorrect passphrase or corrupted archive envelope.';
+        }
+      }
+      setRestoreError(msg);
     } finally {
       setRestoring(false);
     }
@@ -387,7 +478,28 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                 <div className="font-medium text-gray-900">
                   {isNative ? 'Share JSON Backup (.json)' : 'Download Backup (.json)'}
                 </div>
-                <div className="text-[10px] text-gray-400">Schema 2.1 portable snapshot</div>
+                <div className="text-[10px] text-gray-400">Schema 2.2 full-fidelity snapshot</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                setEncryptModalOpen(true);
+                setEncryptError(null);
+                setExportPassphrase('');
+                setConfirmPassphrase('');
+              }}
+              disabled={isExporting}
+              className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+              role="menuitem"
+            >
+              <Lock className="w-4 h-4 text-teal-600" />
+              <div>
+                <div className="font-medium text-gray-900">
+                  {isNative ? 'Share Encrypted Archive (.json)' : 'Encrypted Snapshot (.json)...'}
+                </div>
+                <div className="text-[10px] text-gray-400">Schema 2.2 AES-256-GCM encrypted</div>
               </div>
             </button>
 
@@ -544,6 +656,110 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
         </div>
       )}
 
+      {/* Encrypted Export Modal */}
+      {encryptModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-teal-600" /> Encrypted Snapshot Export
+              </h3>
+              <button
+                onClick={() => {
+                  setEncryptModalOpen(false);
+                  setExportPassphrase('');
+                  setConfirmPassphrase('');
+                  setEncryptError(null);
+                }}
+                className="text-gray-400 hover:text-gray-700 p-1 rounded cursor-pointer"
+                aria-label="Close encryption export dialog"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs text-gray-700">
+              <p className="text-gray-600 text-[11px]">
+                Protect your academic workspace with AES-256-GCM authenticated encryption derived using PBKDF2-HMAC-SHA256 (600,000 rounds).
+              </p>
+
+              <div>
+                <label className="block font-semibold text-gray-800 mb-1">
+                  Passphrase
+                </label>
+                <div className="relative">
+                  <input
+                    type={showExportPassphrase ? 'text' : 'password'}
+                    value={exportPassphrase}
+                    onChange={(e) => setExportPassphrase(e.target.value)}
+                    placeholder="Enter encryption passphrase"
+                    className="w-full px-3 py-1.5 pr-8 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowExportPassphrase(!showExportPassphrase)}
+                    className="absolute right-2 top-2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    title={showExportPassphrase ? 'Hide passphrase' : 'Show passphrase'}
+                  >
+                    {showExportPassphrase ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-800 mb-1">
+                  Confirm Passphrase
+                </label>
+                <input
+                  type={showExportPassphrase ? 'text' : 'password'}
+                  value={confirmPassphrase}
+                  onChange={(e) => setConfirmPassphrase(e.target.value)}
+                  placeholder="Re-enter passphrase"
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              <div className="p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-[11px] text-gray-500 space-y-1">
+                <div className="font-semibold text-gray-700 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-teal-600" /> Security Notice
+                </div>
+                <div>Minimum 4 characters required. Longer, unique passphrases provide significantly stronger protection against brute-force attacks.</div>
+              </div>
+
+              {encryptError && (
+                <div className="p-2.5 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs">
+                  {encryptError}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEncryptModalOpen(false);
+                  setExportPassphrase('');
+                  setConfirmPassphrase('');
+                  setEncryptError(null);
+                }}
+                className="px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExportEncrypted}
+                disabled={isExporting}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded text-xs font-semibold cursor-pointer shadow-xs"
+              >
+                {isExporting ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                <span>{isExporting ? 'Encrypting...' : 'Export & Share'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Restore Backup Modal */}
       {restoreModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
@@ -553,7 +769,14 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                 <Upload className="w-5 h-5 text-indigo-600" /> Restore Syllabus Backup
               </h3>
               <button
-                onClick={() => setRestoreModalOpen(false)}
+                onClick={() => {
+                  setRestoreModalOpen(false);
+                  setRestorePassphrase('');
+                  setIsEncryptedArchive(false);
+                  setRestoreFile(null);
+                  setRestoreError(null);
+                  setRestoreResult(null);
+                }}
                 className="text-gray-400 hover:text-gray-700 p-1 rounded"
               >
                 <X className="w-5 h-5" />
@@ -580,6 +803,35 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                 )}
               </div>
 
+              {/* Encrypted Archive Detection */}
+              {isEncryptedArchive && (
+                <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 font-semibold text-indigo-900 text-xs">
+                    <Lock className="w-4 h-4 text-indigo-600" /> Encrypted Archive Detected
+                  </div>
+                  <div className="text-[11px] text-indigo-700">
+                    This archive is protected with AES-256-GCM encryption. Please enter the passphrase:
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showRestorePassphrase ? 'text' : 'password'}
+                      value={restorePassphrase}
+                      onChange={(e) => setRestorePassphrase(e.target.value)}
+                      placeholder="Enter archive passphrase"
+                      className="w-full px-3 py-1.5 pr-8 border border-indigo-300 rounded-md text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRestorePassphrase(!showRestorePassphrase)}
+                      className="absolute right-2 top-2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      title={showRestorePassphrase ? 'Hide passphrase' : 'Show passphrase'}
+                    >
+                      {showRestorePassphrase ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Mode Selection */}
               <div className="space-y-2">
                 <label className="block font-semibold text-gray-800">Restoration Mode</label>
@@ -597,6 +849,23 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                       <div className="font-semibold text-gray-900">Clone as New Syllabus (Safe)</div>
                       <div className="text-[11px] text-gray-500">
                         Imports as an independent syllabus with a fresh ID without modifying your current syllabus.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="restore_mode"
+                      value="merge"
+                      checked={restoreMode === 'merge'}
+                      onChange={() => setRestoreMode('merge')}
+                      className="mt-0.5 text-indigo-600"
+                    />
+                    <div>
+                      <div className="font-semibold text-gray-900">Merge into Current Syllabus</div>
+                      <div className="text-[11px] text-gray-500">
+                        Safely integrates new topics, study schedules, notes, and flashcards into "{syllabusTitle}" without overwriting existing data.
                       </div>
                     </div>
                   </label>
@@ -654,6 +923,15 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
                   </div>
                   <p>Restored {restoreResult.restored_completed_leaves} completed subtopics.</p>
                   <p>Restored {restoreResult.restored_notes} notes and {restoreResult.restored_resources} resources.</p>
+                  {typeof restoreResult.restored_revision_schedules === 'number' && restoreResult.restored_revision_schedules > 0 && (
+                    <p>Restored {restoreResult.restored_revision_schedules} revision schedules.</p>
+                  )}
+                  {typeof restoreResult.restored_academic_plans === 'number' && restoreResult.restored_academic_plans > 0 && (
+                    <p>Restored {restoreResult.restored_academic_plans} academic plans.</p>
+                  )}
+                  {typeof restoreResult.restored_flashcards === 'number' && restoreResult.restored_flashcards > 0 && (
+                    <p>Restored {restoreResult.restored_flashcards} flashcards.</p>
+                  )}
                   <p>Switching syllabus now...</p>
                 </div>
               )}
@@ -663,9 +941,16 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({
             <div className="px-6 py-3 bg-gray-50 border-t border-gray-100 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setRestoreModalOpen(false)}
+                onClick={() => {
+                  setRestoreModalOpen(false);
+                  setRestorePassphrase('');
+                  setIsEncryptedArchive(false);
+                  setRestoreFile(null);
+                  setRestoreError(null);
+                  setRestoreResult(null);
+                }}
                 disabled={restoring}
-                className="px-3 py-1.5 text-gray-600 hover:bg-gray-200 rounded text-xs font-medium"
+                className="px-3 py-1.5 text-gray-600 hover:bg-gray-200 rounded text-xs font-medium cursor-pointer"
               >
                 Cancel
               </button>

@@ -564,25 +564,34 @@ Supported export formats:
 | Format | Purpose |
 |---|---|
 | Markdown | Readable academic documentation |
-| JSON | Structured curriculum data |
+| JSON | Structured curriculum data (Schema 2.2) |
+| Encrypted Archive (`.json`) | AES-256-GCM encrypted portable snapshot with PBKDF2-HMAC-SHA256 |
 | Printable HTML | Self-contained printable syllabus |
 | RFC 5545 iCalendar (`.ics`) | Exam deadlines & SM-2 revision schedules |
 | Subscribed Calendar Feed | Live synchronization with Google, Apple & Outlook calendars |
-| Database Backup | Full application data backup |
+| Full Workspace Backup | Full academic snapshot with notes, resources, plans & flashcards |
 
 For comprehensive calendar specifications, event identity algorithms, elective exclusion invariants, and subscription setup guides, refer to [docs/CALENDAR_INTEGRATION.md](file:///c:/Farhan%20Ahmad/Code%20Languages/Mr.%20Z/Anti%20Gravity/Syllabus_Tracker/docs/CALENDAR_INTEGRATION.md).
 
-### Database Backup and Restore
+### Encrypted Schema 2.2 Backup & Cross-Device Restore
 
-Backup restoration supports merge/clone workflows.
+The platform provides full-fidelity Schema 2.2 portable exports and cross-device restoration with optional passphrase encryption.
 
-Relevant endpoint:
+- **Cryptographic Foundation**: AES-256-GCM encryption with PBKDF2-HMAC-SHA256 key derivation (600,000 iterations, 16-byte random salt, 12-byte random nonce, AAD envelope verification). Constant-time verification prevents side-channel analysis.
+- **Export Formats**: Standard unencrypted Schema 2.2 JSON or encrypted `.json` archives. Includes complete academic hierarchy, leaf completions, notes, resources, deadlines, SM-2 revision schedules, GPA academic plans, and flashcard decks.
+- **Restoration Modes**:
+  - `clone`: Creates a new independent syllabus with newly mapped entity IDs and fresh cryptographic tokens.
+  - `replace`: Overwrites all completion state, revision schedules, notes, resources, plans, and flashcards of the current syllabus.
+  - `merge`: Non-destructively unions completion records, preserves newer revisions, updates notes with timestamp conflict arbitration, and deduplicates flashcards and resources.
+- **Backward Compatibility**: Fully backward-compatible with Schema 2.0 and Schema 2.1 legacy backups.
+
+Relevant endpoints:
 
 ```http
+POST /api/syllabus/{id}/export/archive
+GET  /api/syllabus/{id}/export/json
 POST /api/syllabus/restore-backup
 ```
-
-Restoration should be performed using compatible backup schemas and the application's validation rules.
 
 ---
 

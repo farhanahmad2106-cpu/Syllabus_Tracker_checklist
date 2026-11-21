@@ -180,7 +180,7 @@ def test_json_backup_export(client, db_session, exportable_syllabus):
     assert "attachment" in resp.headers["content-disposition"]
 
     envelope = resp.json()
-    assert envelope["schema_version"] == "2.1"
+    assert envelope["schema_version"] == "2.2"
     assert envelope["application"] == "Hierarchical Syllabus Checklist & Progress Tracker"
     assert "top_limits" in envelope["completed_leaves"]
     assert envelope["notes"]["top_limits"] == "Limits notes"

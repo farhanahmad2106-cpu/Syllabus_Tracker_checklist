@@ -3,10 +3,11 @@
 from datetime import date, datetime, timezone
 from typing import Optional
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, Boolean, UniqueConstraint, CheckConstraint, Index
-from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 from sqlmodel import SQLModel, Field as DBField, Relationship
 
-Base = declarative_base(metadata=SQLModel.metadata)
+class Base(DeclarativeBase):
+    metadata = SQLModel.metadata
 
 
 class TargetDeadline(SQLModel, table=True):
