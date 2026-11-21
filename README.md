@@ -526,6 +526,45 @@ The revision scheduler connects topic-level learning progress with long-term mem
 
 ---
 
+## 🗺️ Interactive Visual Curriculum Mastery & Prerequisite Dependency Graph (Phase 14 — Cycle C)
+
+The platform includes an interactive, client-side **Visual Curriculum Mastery & Prerequisite Dependency Map** integrated directly into the Analytics Dashboard. It provides students with a visual representation of their enrolled academic journey, semester progressions, module-level breakdowns, and foundation readiness without introducing external network or AI dependencies.
+
+### Key Capabilities
+
+- **Deterministic Academic Graph Engine (`frontend/src/lib/curriculumGraph.ts`)**:
+  - Pure TypeScript engine with zero external graph libraries (offline-ready for Web, PWA, Android, and iOS).
+  - **Strict Leaf-Weighted Progress**: Subject and semester progress is strictly calculated from leaf topics (`completedEnrolledLeaves / totalEnrolledLeaves * 100`). Academic credits are informational metadata and never bias progress weighting.
+  - **Elective Isolation**: Non-enrolled elective subjects and unselected elective branches are strictly excluded from both the visualization and the mastery denominator.
+  - **Effective Credit Resolution**: Accurately honors zero-credit subjects (seminars, zero-credit labs) and prioritizes GPA academic plan credit overrides.
+  - **Laboratory Differentiation**: Automatically identifies laboratory courses via `is_lab`, course code naming conventions, and title heuristics (`Lab`, `Practical`, `Workshop`, `Studio`).
+
+- **Rule-Based Prerequisite & Academic Progression Inference**:
+  - **Rule A (Explicit Sequence)**: Matches course sequences with shared stems using Roman numerals (`I`, `II`), Arabic numbers (`1`, `2`), or standardized course codes (`CS101` $\rightarrow$ `CS201`).
+  - **Rule B (Advanced Progression)**: Identifies progression paths such as *Data Structures* $\rightarrow$ *Advanced Data Structures* or *Machine Learning* $\rightarrow$ *Deep Learning*.
+  - **Rule C (Core Academic Foundations)**: Curated academic dictionary linking fundamental disciplines (e.g., *Linear Algebra* $\rightarrow$ *Computer Graphics*, *Operating Systems* $\rightarrow$ *Distributed Systems*, *Algorithms* $\rightarrow$ *Artificial Intelligence*).
+  - **Rule D (Strict Chronological Acyclic Constraint)**: Enforces that `source.semesterIndex < target.semesterIndex`. Same-semester, backward, or cyclic dependencies are rejected.
+  - **Rule E (Confidence Scoring & Explainability)**: Assigns `high`, `medium`, or `low` confidence with transparent explanatory rationale.
+  - **Rule F (Foundation Satisfaction Threshold)**: Evaluates prerequisite readiness using `FOUNDATION_SATISFACTION_THRESHOLD = 70%`. Prerequisite edges render as solid emerald lines if $\geq 70\%$ and dashed warning amber lines if $< 70\%$.
+  - **Rule G (Deduplication)**: When multiple heuristics match between two subjects, the edge with the highest confidence is preserved.
+
+- **Interactive Visual Canvas (`frontend/src/components/CurriculumMasteryMap.tsx`)**:
+  - **Horizontal Semester Columns & Vertical Subject Stacks**: Clean, responsive layout showcasing semester completion stats, enrolled credit tallies, and subject cards.
+  - **SVG Cubic Bézier Connectors**: Smooth cubic Bézier spline paths with directional arrowhead markers linking prerequisite subjects across semester columns.
+  - **Interactive Dependency Highlighting**: Hovering or focusing a subject highlights upstream prerequisite requirements (amber) and downstream subjects unlocked (blue) while dimming unrelated cards.
+  - **Subject Mastery Inspector Drawer**: Clicking any subject reveals comprehensive details including course codes, credits, risk diagnostics, module-level progress breakdown, and a deep-link button.
+  - **Deep Syllabus Navigation**: "Jump to Syllabus Tree" transitions directly to the canonical tree workspace, expands all ancestor nodes, and focuses the target subject.
+  - **Filtering & Canvas Controls**: Quick-filter pills (*All Enrolled*, *At Risk / Behind*, *In Progress*, *Mastered*), zoom in/out/reset controls, link visibility toggle, and collapsible legend.
+  - **Prominent Academic Disclaimer**: Always clearly states: *"Inferred Academic Progression — Not Officially Verified Prerequisites"*.
+
+- **Automated Test Coverage**:
+  - 24 unit tests for curriculum graph construction, credit overrides, risk resolution, and inference rules (`frontend/src/__tests__/curriculumGraph.test.ts`).
+  - 8 component tests for interactive rendering, filter toggling, SVG connectors, and inspector drawers (`frontend/src/__tests__/CurriculumMasteryMap.test.tsx`).
+  - 8 analytics dashboard integration tests covering tab switching and deep navigation (`frontend/src/__tests__/AnalyticsDashboard.test.tsx`).
+  - Total: 40 tests passing with 100% type safety and production build verification.
+
+---
+
 ## 🗓️ Study Pacing and Target Deadlines
 
 Students can configure completion deadlines for individual modules and subjects.

@@ -962,7 +962,9 @@ export const App: React.FC = () => {
                 <AnalyticsDashboard
                   syllabusId={activeSyllabus.syllabus.id}
                   syllabusTitle={activeSyllabus.syllabus.title}
+                  syllabus={activeSyllabus.syllabus}
                   completedLeafIds={activeSyllabus.completed_leaf_ids}
+                  pacingData={pacingData}
                   onOpenNoteDrawer={openNoteDrawer}
                   onOpenResourceModal={openResourceModal}
                   isOnline={isOnline}
@@ -972,6 +974,7 @@ export const App: React.FC = () => {
                   academicPlanProp={academicPlanData}
                   onOpenAcademicPlan={handleOpenAcademicPlan}
                   onOpenFlashcards={(leafId, leafTitle) => setActiveFlashcardLeaf({ leafId, leafTitle })}
+                  onNavigateToNode={handleDeepNavigate}
                 />
               )}
             </div>

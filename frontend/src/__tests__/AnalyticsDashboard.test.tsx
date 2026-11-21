@@ -12,6 +12,22 @@ vi.mock('../lib/api', () => ({
   fetchDueRevisions: vi.fn(),
   fetchAcademicPlan: vi.fn(),
   submitRevisionReview: vi.fn(),
+  fetchSyllabus: vi.fn().mockResolvedValue({
+    syllabus: {
+      id: 'syl_test_1',
+      title: 'Test Syllabus',
+      schema_version: 2,
+      years: [],
+      created_at: '',
+      updated_at: '',
+      source_filename: 'test.pdf',
+    },
+    completed_leaf_ids: [],
+    progress: { progress_percent: 0, completed_leaves: 0, total_leaves: 0 },
+    node_progress: {},
+    warnings: [],
+  }),
+  fetchSyllabusPacing: vi.fn().mockResolvedValue({ syllabus_id: 'syl_test_1', deadlines: {} }),
 }));
 
 vi.mock('../lib/nativeBridge', () => ({
@@ -342,6 +358,33 @@ describe('AnalyticsDashboard Component', () => {
           dialogTitle: 'Sync Academic Calendar',
         })
       );
+    });
+  });
+
+  it('switches between Overview and Curriculum Mastery Map view tabs', async () => {
+    render(
+      <AnalyticsDashboard
+        syllabusId="syl_test_1"
+        syllabusTitle="B.Sc. Data Engineering"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Curriculum Mastery Map/i })).toBeInTheDocument();
+    });
+
+    // Click Curriculum Mastery Map tab
+    fireEvent.click(screen.getByRole('tab', { name: /Curriculum Mastery Map/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('curriculum-mastery-map')).toBeInTheDocument();
+    });
+
+    // Switch back to Overview & Velocity
+    fireEvent.click(screen.getByRole('tab', { name: /Overview & Velocity/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Overall Completion')).toBeInTheDocument();
     });
   });
 });

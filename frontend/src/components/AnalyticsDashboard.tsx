@@ -15,19 +15,25 @@ import {
   FileText,
   Bookmark,
   Info,
+  Compass,
 } from 'lucide-react';
 import {
   exportSyllabusIcs,
   fetchAcademicPlan,
   fetchDueRevisions,
   fetchSyllabusAnalytics,
+  fetchSyllabus,
+  fetchSyllabusPacing,
   submitRevisionReview,
 } from '../lib/api';
 import { exportAndShareFile } from '../lib/nativeBridge';
 import { enqueueMutation } from '../lib/offlineStore';
+import { CurriculumMasteryMap } from './CurriculumMasteryMap';
 import type {
   AcademicPlanResponse,
   DueRevisionItem,
+  HierarchicalSyllabus,
+  PacingMetrics,
   Subject,
   SyllabusAnalytics,
 } from '../types/syllabus';
@@ -35,7 +41,9 @@ import type {
 interface AnalyticsDashboardProps {
   syllabusId: string;
   syllabusTitle: string;
+  syllabus?: HierarchicalSyllabus;
   completedLeafIds?: string[];
+  pacingData?: Record<string, PacingMetrics> | null;
   onOpenNoteDrawer?: (leafId: string, leafTitle: string) => void;
   onOpenResourceModal?: (
     nodeId: string,
@@ -47,13 +55,16 @@ interface AnalyticsDashboardProps {
   onOpenAcademicPlan?: (subj: Subject) => void;
   academicPlanProp?: AcademicPlanResponse | null;
   onOpenFlashcards?: (leafId: string, leafTitle: string) => void;
+  onNavigateToNode?: (nodeId: string) => void;
 }
 
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   syllabusId,
   syllabusTitle,
-  completedLeafIds: _completedLeafIds,
+  syllabus: syllabusProp,
+  completedLeafIds: completedLeafIdsProp,
+  pacingData: pacingDataProp,
   onOpenNoteDrawer,
   onOpenResourceModal,
   isOnline = true,
@@ -61,11 +72,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   onOpenAcademicPlan: _onOpenAcademicPlan,
   academicPlanProp,
   onOpenFlashcards,
+  onNavigateToNode,
 }) => {
+  const [dashboardTab, setDashboardTab] = useState<'overview' | 'map'>('overview');
   const [analytics, setAnalytics] = useState<SyllabusAnalytics | null>(null);
   const [dueRevisions, setDueRevisions] = useState<DueRevisionItem[]>([]);
   const [totalDue, setTotalDue] = useState<number>(0);
   const [academicPlan, setAcademicPlan] = useState<AcademicPlanResponse | null>(academicPlanProp || null);
+  const [fetchedSyllabus, setFetchedSyllabus] = useState<HierarchicalSyllabus | null>(syllabusProp || null);
+  const [fetchedCompletedLeafIds, setFetchedCompletedLeafIds] = useState<string[]>(completedLeafIdsProp || []);
+  const [fetchedPacingData, setFetchedPacingData] = useState<Record<string, PacingMetrics>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +101,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     }
   }, [academicPlanProp]);
 
+  useEffect(() => {
+    if (syllabusProp) {
+      setFetchedSyllabus(syllabusProp);
+    }
+  }, [syllabusProp]);
+
+  useEffect(() => {
+    if (completedLeafIdsProp) {
+      setFetchedCompletedLeafIds(completedLeafIdsProp);
+    }
+  }, [completedLeafIdsProp]);
 
   // Auto-dismiss notifications after 4 seconds
   useEffect(() => {
@@ -93,6 +120,23 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       return () => clearTimeout(timer);
     }
   }, [notification]);
+
+  // Lazy load curriculum hierarchy and pacing for the mastery map if not supplied via props
+  useEffect(() => {
+    if (dashboardTab === 'map' && !syllabusProp && !fetchedSyllabus) {
+      fetchSyllabus(syllabusId)
+        .then((res) => {
+          setFetchedSyllabus(res.syllabus);
+          setFetchedCompletedLeafIds(res.completed_leaf_ids);
+        })
+        .catch(() => {});
+      fetchSyllabusPacing(syllabusId)
+        .then((res) => {
+          if (res?.deadlines) setFetchedPacingData(res.deadlines);
+        })
+        .catch(() => {});
+    }
+  }, [dashboardTab, syllabusProp, fetchedSyllabus, syllabusId]);
 
   const loadData = useCallback(
     async (showLoadingSpinner = true) => {
@@ -350,7 +394,58 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
       )}
 
-      {/* Section 1: KPI Summary Cards (4 Cards Grid) */}
+      {/* Top View Selector Tabs */}
+      <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-2" role="tablist" aria-label="Analytics Views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={dashboardTab === 'overview'}
+          onClick={() => setDashboardTab('overview')}
+          className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+            dashboardTab === 'overview'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4" /> Overview & Velocity
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={dashboardTab === 'map'}
+          onClick={() => setDashboardTab('map')}
+          className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+            dashboardTab === 'map'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+          }`}
+        >
+          <Compass className="w-4 h-4 text-emerald-400" /> Curriculum Mastery Map
+        </button>
+      </div>
+
+      {dashboardTab === 'map' ? (
+        (syllabusProp || fetchedSyllabus) ? (
+          <div className="min-h-[600px] h-[720px]">
+            <CurriculumMasteryMap
+              syllabus={(syllabusProp || fetchedSyllabus)!}
+              completedLeafIds={completedLeafIdsProp || fetchedCompletedLeafIds}
+              pacingData={pacingDataProp || fetchedPacingData}
+              academicPlan={academicPlan}
+              examRisks={analytics?.exam_risks || null}
+              onNavigateToNode={onNavigateToNode}
+              isOnline={isOnline}
+            />
+          </div>
+        ) : (
+          <div className="p-8 text-center text-xs text-[var(--text-muted)] rounded-xl border border-dashed border-[var(--border-subtle)]">
+            Loading curriculum data for mastery map...
+          </div>
+        )
+      ) : (
+        <>
+          {/* Section 1: KPI Summary Cards (4 Cards Grid) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Overall Completion */}
         <div className="p-4 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xs space-y-2">
@@ -1253,6 +1348,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 };
